@@ -141,6 +141,16 @@ CREATE TABLE warnings (
 );
 
 -- =====================================================
+-- TABLE 10: php_sessions
+-- Serverless Session Store (Persists reliably across Vercel invocations)
+-- =====================================================
+CREATE TABLE php_sessions (
+    id VARCHAR(128) PRIMARY KEY,
+    data TEXT NOT NULL,
+    last_activity TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
 -- SEED DATA: 7 Diagnostic Rules
 -- =====================================================
 INSERT INTO diagnosis_rules (symptom_combination, possible_disease, advice, recommended_specialization, is_emergency, first_aid_steps) VALUES
