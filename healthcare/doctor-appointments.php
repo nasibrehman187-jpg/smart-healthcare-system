@@ -113,7 +113,7 @@ if ($filter === 'all') {
          JOIN patients p ON a.patient_id = p.patient_id
          JOIN users u ON p.user_id = u.user_id
          WHERE a.doctor_id = ?
-         ORDER BY (CASE a.severity_level WHEN 'Emergency' THEN 1 WHEN 'Normal' THEN 2 WHEN 'Follow-up' THEN 3 ELSE 4 END), a.appointment_time ASC"
+         ORDER BY FIELD(a.severity_level, 'Emergency', 'Normal', 'Follow-up'), a.appointment_time ASC"
     );
 } else {
     // Show only TODAY's appointments (default view)
@@ -124,8 +124,8 @@ if ($filter === 'all') {
          FROM appointments a
          JOIN patients p ON a.patient_id = p.patient_id
          JOIN users u ON p.user_id = u.user_id
-         WHERE a.doctor_id = ? AND DATE(a.appointment_time) = CURRENT_DATE
-         ORDER BY (CASE a.severity_level WHEN 'Emergency' THEN 1 WHEN 'Normal' THEN 2 WHEN 'Follow-up' THEN 3 ELSE 4 END), a.appointment_time ASC"
+         WHERE a.doctor_id = ? AND DATE(a.appointment_time) = CURDATE()
+         ORDER BY FIELD(a.severity_level, 'Emergency', 'Normal', 'Follow-up'), a.appointment_time ASC"
     );
 }
 $stmt->bind_param("i", $doctor_id);

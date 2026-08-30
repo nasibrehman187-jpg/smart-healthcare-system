@@ -1,9 +1,14 @@
 <?php
 // =====================================================
-// db.php — Database Connection + DB Sessions + CSRF Helpers
+// db.php — Database Connection + Session + CSRF Helpers
 // =====================================================
-// Supports both Supabase (PostgreSQL via PDO) & XAMPP (MySQLi)
+// Standard MySQLi database connection for InfinityFree & XAMPP
 // =====================================================
+
+// Start native PHP session
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Set timezone to Pakistan Standard Time (UTC+5)
 date_default_timezone_set('Asia/Karachi');
@@ -14,298 +19,25 @@ header("Pragma: no-cache");
 header("Expires: 0");
 
 // =====================================================
-// DATABASE CONNECTION SETTINGS (Supabase / Postgres / MySQL)
+// DATABASE CONNECTION SETTINGS
+// Configure with your InfinityFree MySQL details (or XAMPP defaults)
 // =====================================================
-$database_url = getenv('DATABASE_URL') ?: getenv('POSTGRES_URL');
-$is_pgsql = false;
+$host     = getenv('DB_HOST') ?: "localhost";          // e.g. sqlXXX.infinityfree.com
+$username = getenv('DB_USER') ?: "root";               // e.g. if0_XXXXXXXX
+$password = getenv('DB_PASS') !== false ? getenv('DB_PASS') : ""; // Hosting account password
+$database = getenv('DB_NAME') ?: "healthcare_system";  // e.g. if0_XXXXXXXX_healthcare
+$port     = getenv('DB_PORT') ? intval(getenv('DB_PORT')) : 3306;
 
-if (!empty($database_url)) {
-    // Parse standard PostgreSQL Connection URI: postgresql://user:pass@host:port/dbname
-    $db_parts = parse_url($database_url);
-    $host     = $db_parts['host'] ?? "localhost";
-    $port     = $db_parts['port'] ?? 5432;
-    $username = $db_parts['user'] ?? "postgres";
-    $password = isset($db_parts['pass']) ? urldecode($db_parts['pass']) : "";
-    $database = isset($db_parts['path']) ? ltrim($db_parts['path'], '/') : "postgres";
-    $is_pgsql = true;
-} else {
-    $db_type  = getenv('DB_TYPE') ?: 'mysql';
-    $host     = getenv('DB_HOST') ?: "localhost";
-    $username = getenv('DB_USER') ?: "root";
-    $password = getenv('DB_PASS') !== false ? getenv('DB_PASS') : "";
-    $database = getenv('DB_NAME') ?: "healthcare_system";
-    $port     = getenv('DB_PORT') ? intval(getenv('DB_PORT')) : ($db_type === 'pgsql' ? 5432 : 3306);
-    $is_pgsql = ($db_type === 'pgsql' || strpos($host, 'supabase') !== false || $port == 5432 || $port == 6543);
-}
-
-// =====================================================
-// POSTGRESQL PDO COMPATIBILITY ADAPTER
-// Provides a transparent mysqli-compatible interface over PDO pgsql
-// =====================================================
-if ($is_pgsql) {
-    class PgSqlResult {
-        private $rows;
-        private $currentIndex = 0;
-        public $num_rows = 0;
-
-        public function __construct(array $rows) {
-            $this->rows = $rows;
-            $this->num_rows = count($rows);
-        }
-
-        public function fetch_assoc() {
-            if ($this->currentIndex < $this->num_rows) {
-                return $this->rows[$this->currentIndex++];
-            }
-            return null;
-        }
-
-        public function fetch_all($mode = MYSQLI_NUM) {
-            return $this->rows;
-        }
-    }
-
-    class PgSqlStmt {
-        private $pdo;
-        private $sql;
-        private $stmt;
-        private $params = [];
-        public $affected_rows = 0;
-        public $error = '';
-
-        public function __construct($pdo, $sql) {
-            $this->pdo = $pdo;
-            $this->sql = $sql;
-            $this->stmt = $pdo->prepare($sql);
-        }
-
-        public function bind_param($types, &...$vars) {
-            $this->params = [];
-            foreach ($vars as $key => &$val) {
-                $typeChar = $types[$key] ?? 's';
-                $pdoType = PDO::PARAM_STR;
-                if ($typeChar === 'i') $pdoType = PDO::PARAM_INT;
-                elseif ($typeChar === 'b') $pdoType = PDO::PARAM_BOOL;
-                $this->params[] = [
-                    'value' => &$val,
-                    'type'  => $pdoType
-                ];
-            }
-            return true;
-        }
-
-        public function execute($params = null) {
-            try {
-                if ($params !== null) {
-                    $res = $this->stmt->execute($params);
-                } elseif (!empty($this->params)) {
-                    foreach ($this->params as $idx => $p) {
-                        $this->stmt->bindValue($idx + 1, $p['value'], $p['type']);
-                    }
-                    $res = $this->stmt->execute();
-                } else {
-                    $res = $this->stmt->execute();
-                }
-                $this->affected_rows = $this->stmt->rowCount();
-                return $res;
-            } catch (Exception $e) {
-                $this->error = $e->getMessage();
-                return false;
-            }
-        }
-
-        public function get_result() {
-            $rows = $this->stmt->fetchAll(PDO::FETCH_ASSOC);
-            return new PgSqlResult($rows);
-        }
-
-        public function close() {
-            $this->stmt = null;
-            return true;
-        }
-    }
-
-    class PgSqlDbAdapter {
-        public $pdo;
-        public $insert_id = 0;
-        public $affected_rows = 0;
-        public $connect_error = null;
-        public $error = '';
-
-        public function __construct($host, $username, $password, $database, $port = 5432) {
-            try {
-                $dsn = "pgsql:host={$host};port={$port};dbname={$database};sslmode=require";
-                $this->pdo = new PDO($dsn, $username, $password, [
-                    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES   => false
-                ]);
-            } catch (PDOException $e) {
-                try {
-                    $dsn = "pgsql:host={$host};port={$port};dbname={$database}";
-                    $this->pdo = new PDO($dsn, $username, $password, [
-                        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-                    ]);
-                } catch (PDOException $e2) {
-                    $this->connect_error = $e2->getMessage();
-                }
-            }
-        }
-
-        public function query($sql) {
-            try {
-                $stmt = $this->pdo->query($sql);
-                if (stripos(trim($sql), 'SELECT') === 0 || stripos(trim($sql), 'SHOW') === 0) {
-                    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    return new PgSqlResult($rows);
-                }
-                $this->affected_rows = $stmt->rowCount();
-                return true;
-            } catch (Exception $e) {
-                $this->error = $e->getMessage();
-                return false;
-            }
-        }
-
-        public function prepare($sql) {
-            try {
-                return new PgSqlStmt($this->pdo, $sql);
-            } catch (Exception $e) {
-                $this->error = $e->getMessage();
-                return false;
-            }
-        }
-
-        public function __get($name) {
-            if ($name === 'insert_id') {
-                try {
-                    return (int)$this->pdo->lastInsertId();
-                } catch (Exception $e) {
-                    return 0;
-                }
-            }
-            return null;
-        }
-
-        public function close() {
-            $this->pdo = null;
-            return true;
-        }
-    }
-
-    $conn = new PgSqlDbAdapter($host, $username, $password, $database, $port);
-} else {
-    // Default XAMPP MySQLi Connection
-    $conn = new mysqli($host, $username, $password, $database, $port);
-}
+// Create the MySQLi connection object
+$conn = @new mysqli($host, $username, $password, $database, $port);
 
 // Check if the connection failed
 if ($conn->connect_error) {
     die("Database Connection Failed: " . $conn->connect_error);
 }
 
-// =====================================================
-// DATABASE-BACKED SESSION HANDLER
-// Solves Vercel serverless session statelessness by storing
-// active session data directly in the database (php_sessions table).
-// =====================================================
-class DatabaseSessionHandler implements SessionHandlerInterface {
-    private $conn;
-    private $is_pgsql;
-
-    public function __construct($conn, $is_pgsql) {
-        $this->conn = $conn;
-        $this->is_pgsql = $is_pgsql;
-    }
-
-    #[\ReturnTypeWillChange]
-    public function open($savePath, $sessionName) {
-        return true;
-    }
-
-    #[\ReturnTypeWillChange]
-    public function close() {
-        return true;
-    }
-
-    #[\ReturnTypeWillChange]
-    public function read($id) {
-        try {
-            $stmt = $this->conn->prepare("SELECT data FROM php_sessions WHERE id = ?");
-            if ($stmt) {
-                $stmt->bind_param("s", $id);
-                $stmt->execute();
-                $res = $stmt->get_result();
-                if ($res && ($row = $res->fetch_assoc())) {
-                    return (string)$row['data'];
-                }
-            }
-        } catch (Exception $e) {}
-        return '';
-    }
-
-    #[\ReturnTypeWillChange]
-    public function write($id, $data) {
-        try {
-            if ($this->is_pgsql) {
-                $stmt = $this->conn->prepare(
-                    "INSERT INTO php_sessions (id, data, last_activity) VALUES (?, ?, CURRENT_TIMESTAMP)
-                     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, last_activity = CURRENT_TIMESTAMP"
-                );
-            } else {
-                $stmt = $this->conn->prepare(
-                    "INSERT INTO php_sessions (id, data, last_activity) VALUES (?, ?, NOW())
-                     ON DUPLICATE KEY UPDATE data = VALUES(data), last_activity = NOW()"
-                );
-            }
-            if ($stmt) {
-                $stmt->bind_param("ss", $id, $data);
-                return (bool)$stmt->execute();
-            }
-        } catch (Exception $e) {}
-        return false;
-    }
-
-    #[\ReturnTypeWillChange]
-    public function destroy($id) {
-        try {
-            $stmt = $this->conn->prepare("DELETE FROM php_sessions WHERE id = ?");
-            if ($stmt) {
-                $stmt->bind_param("s", $id);
-                return (bool)$stmt->execute();
-            }
-        } catch (Exception $e) {}
-        return true;
-    }
-
-    #[\ReturnTypeWillChange]
-    public function gc($maxlifetime) {
-        try {
-            if ($this->is_pgsql) {
-                $this->conn->query("DELETE FROM php_sessions WHERE last_activity < (CURRENT_TIMESTAMP - INTERVAL '30 days')");
-            } else {
-                $this->conn->query("DELETE FROM php_sessions WHERE last_activity < DATE_SUB(NOW(), INTERVAL 30 DAY)");
-            }
-            return 1;
-        } catch (Exception $e) {}
-        return 0;
-    }
-}
-
-// Automatically register database-backed session handler if DB is connected
-if ($conn && empty($conn->connect_error)) {
-    // Only register DB session handler in production / serverless environment
-    if ($is_pgsql || getenv('VERCEL') || getenv('USE_DB_SESSIONS')) {
-        $handler = new DatabaseSessionHandler($conn, $is_pgsql);
-        session_set_save_handler($handler, true);
-    }
-}
-
-// Start PHP session
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+// Set UTF-8 character encoding
+$conn->set_charset("utf8mb4");
 
 // =====================================================
 // REMEMBER ME COOKIE AUTO-LOGIN

@@ -80,15 +80,15 @@ if ($role === 'patient') {
     $stmt->close();
 
     // Step 2: Fetch TODAY's appointments, sorted by severity priority
-    // ANSI SQL compatible priority sort (Emergency -> Normal -> Follow-up)
+    // FIELD() sorts Emergency first, then Normal, then Follow-up
     $stmt = $conn->prepare(
         "SELECT a.appointment_id, a.severity_level, a.appointment_time, a.status,
                 u.full_name AS patient_name, p.age, p.cnic
          FROM appointments a
          JOIN patients p ON a.patient_id = p.patient_id
          JOIN users u ON p.user_id = u.user_id
-         WHERE a.doctor_id = ? AND DATE(a.appointment_time) = CURRENT_DATE
-         ORDER BY (CASE a.severity_level WHEN 'Emergency' THEN 1 WHEN 'Normal' THEN 2 WHEN 'Follow-up' THEN 3 ELSE 4 END), a.appointment_time ASC"
+         WHERE a.doctor_id = ? AND DATE(a.appointment_time) = CURDATE()
+         ORDER BY FIELD(a.severity_level, 'Emergency', 'Normal', 'Follow-up'), a.appointment_time ASC"
     );
     $stmt->bind_param("i", $doctor_id);
     $stmt->execute();
