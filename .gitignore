@@ -1,0 +1,29 @@
+# Dependencies & Logs
+node_modules/
+vendor/
+*.log
+
+# Environment & Credentials (NEVER COMMIT SENSITIVE KEYS)
+.env
+.env.local
+.env.*.local
+
+# Executables & Binaries (Keep source .cpp and .vb)
+*.exe
+*.zip
+bin/
+obj/
+cloudflared.exe
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS generated files
+Thumbs.db
+Desktop.ini
+.DS_Store

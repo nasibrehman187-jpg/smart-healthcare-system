@@ -1,0 +1,1333 @@
+/* =====================================================
+   Smart Healthcare & Diagnostic Management System
+   Main Stylesheet — Healthcare Theme
+   Colors: Blues, Whites, Soft Greens
+   =====================================================
+   This CSS file is linked in every PHP page.
+   It uses CSS custom properties (variables) for easy color management.
+   ===================================================== */
+
+/* =====================================================
+   1. CSS VARIABLES — Define all colors in one place
+   Change these to update the entire theme at once
+   ===================================================== */
+:root {
+    /* Primary Blues */
+    --primary:        #2563eb;   /* Main blue — buttons, links, navbar */
+    --primary-dark:   #1d4ed8;   /* Darker blue — hover states */
+    --primary-light:  #dbeafe;   /* Very light blue — backgrounds, highlights */
+    --primary-bg:     #eff6ff;   /* Lightest blue — page background */
+
+    /* Soft Greens (for success states and accents) */
+    --green:          #059669;   /* Green — success messages, confirmed status */
+    --green-light:    #d1fae5;   /* Light green — success backgrounds */
+
+    /* Neutrals */
+    --white:          #ffffff;
+    --gray-50:        #f8fafc;   /* Very light gray */
+    --gray-100:       #f1f5f9;   /* Light gray — table stripes */
+    --gray-200:       #e2e8f0;   /* Border gray */
+    --gray-300:       #cbd5e1;   /* Input borders */
+    --gray-500:       #64748b;   /* Muted text */
+    --gray-700:       #334155;   /* Dark text */
+    --gray-900:       #0f172a;   /* Darkest text */
+
+    /* Status Colors */
+    --danger:         #dc2626;   /* Red — errors, emergency, cancel */
+    --danger-light:   #fee2e2;   /* Light red — error backgrounds */
+    --warning:        #d97706;   /* Amber — warnings, pending status */
+    --warning-light:  #fef3c7;   /* Light amber */
+    --info:           #0284c7;   /* Sky blue — info messages */
+    --info-light:     #e0f2fe;   /* Light info */
+
+    /* Layout */
+    --max-width:      1200px;    /* Maximum page width */
+    --radius:         8px;       /* Border radius for cards/buttons */
+    --radius-lg:      12px;      /* Larger radius for cards */
+    --shadow:         0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-md:      0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
+    --shadow-lg:      0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+
+/* =====================================================
+   2. RESET & BASE STYLES
+   Remove browser defaults and set consistent base styles
+   ===================================================== */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box; /* Makes width include padding and border */
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--primary-bg);
+    color: var(--gray-900);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+a {
+    color: var(--primary);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+
+/* =====================================================
+   3. NAVBAR — Top navigation bar
+   Dark blue gradient with white text
+   ===================================================== */
+.navbar {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    padding: 0 2rem;
+    display: flex;
+    justify-content: space-between;  /* Logo left, links right */
+    align-items: center;
+    height: 64px;
+    box-shadow: var(--shadow-md);
+    position: sticky;               /* Stays at top when scrolling */
+    top: 0;
+    z-index: 100;                   /* Always on top of other elements */
+}
+
+.navbar-brand {
+    color: var(--white);
+    font-size: 1.25rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.navbar-brand .icon {
+    font-size: 1.5rem;
+}
+
+.navbar-links {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    list-style: none;     /* Remove bullet points */
+}
+
+.navbar-links a {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.95rem;
+    font-weight: 500;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    transition: all 0.2s ease;       /* Smooth hover animation */
+    text-decoration: none;
+}
+
+.navbar-links a:hover {
+    color: var(--white);
+    background-color: rgba(255, 255, 255, 0.15);
+    text-decoration: none;
+}
+
+/* Logout button styled differently in navbar */
+.navbar-links .btn-logout {
+    background-color: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 0.4rem 1rem;
+}
+
+.navbar-links .btn-logout:hover {
+    background-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Landing page navbar buttons (index.php only) */
+.navbar-links .btn-nav-login {
+    display: inline-block;
+    padding: 0.45rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--white);
+    background: rgba(255, 255, 255, 0.12);
+    border: 1.5px solid rgba(255, 255, 255, 0.4);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.navbar-links .btn-nav-login:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.6);
+    text-decoration: none;
+    color: var(--white);
+}
+
+.navbar-links .btn-nav-register {
+    display: inline-block;
+    padding: 0.45rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--primary-dark);
+    background: var(--white);
+    border: 1.5px solid var(--white);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-links .btn-nav-register:hover {
+    background: var(--gray-50);
+    color: var(--primary-dark);
+    text-decoration: none;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+}
+
+
+/* =====================================================
+   4. PAGE CONTAINER — Centers content with max width
+   ===================================================== */
+.container {
+    max-width: var(--max-width);
+    margin: 0 auto;                  /* Center horizontally */
+    padding: 2rem 1.5rem;
+}
+
+/* Narrow container for login/register forms */
+.container-narrow {
+    max-width: 550px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+
+
+/* =====================================================
+   5. CARDS — White boxes with shadow (used everywhere)
+   Dashboard stats, forms, tables all use cards
+   ===================================================== */
+.card {
+    background-color: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: 1.75rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--gray-200);
+    transition: box-shadow 0.2s ease; /* Smooth shadow on hover */
+}
+
+.card:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.card-header {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid var(--primary-light);
+}
+
+/* Page title with icon */
+.page-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+
+/* =====================================================
+   6. DASHBOARD STATS — Colored stat cards in a grid
+   ===================================================== */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    border-left: 4px solid var(--primary);  /* Colored left border accent */
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);    /* Slight lift on hover */
+    box-shadow: var(--shadow-lg);
+}
+
+.stat-card.green {
+    border-left-color: var(--green);
+}
+
+.stat-card.warning {
+    border-left-color: var(--warning);
+}
+
+.stat-card.danger {
+    border-left-color: var(--danger);
+}
+
+.stat-card .stat-number {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--primary);
+    line-height: 1;
+}
+
+.stat-card.green .stat-number {
+    color: var(--green);
+}
+
+.stat-card.warning .stat-number {
+    color: var(--warning);
+}
+
+.stat-card.danger .stat-number {
+    color: var(--danger);
+}
+
+.stat-card .stat-label {
+    font-size: 0.9rem;
+    color: var(--gray-500);
+    margin-top: 0.5rem;
+    font-weight: 500;
+}
+
+
+/* =====================================================
+   7. FORMS — Input fields, labels, selects
+   ===================================================== */
+.form-group {
+    margin-bottom: 1.25rem;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    color: var(--gray-700);
+    margin-bottom: 0.4rem;
+    font-size: 0.9rem;
+}
+
+/* Required field asterisk */
+.form-group label .required {
+    color: var(--danger);
+    margin-left: 2px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="password"],
+.form-group input[type="number"],
+.form-group input[type="tel"],
+.form-group input[type="date"],
+.form-group input[type="time"],
+.form-group input[type="datetime-local"],
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 1.5px solid var(--gray-300);
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    color: var(--gray-900);
+    background-color: var(--white);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Focus state — blue border glow */
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* Password toggle wrapper */
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.password-wrapper input {
+    width: 100%;
+    padding-right: 2.75rem !important;
+}
+
+.toggle-eye {
+    position: absolute;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0;
+    line-height: 1;
+    user-select: none;
+    outline: none;
+    color: var(--gray-500);
+}
+
+.toggle-eye:hover {
+    opacity: 0.8;
+}
+
+/* Remove native browser password reveal & clear buttons (MS Edge / WebKit) */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
+}
+
+input[type="password"]::-webkit-credentials-auto-fill-button,
+input[type="password"]::-webkit-caps-lock-indicator {
+    display: none !important;
+    visibility: hidden;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+}
+
+/* Two-column form layout */
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+/* Radio buttons for role selection */
+.role-selector {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.role-option {
+    flex: 1;
+    position: relative;
+}
+
+.role-option input[type="radio"] {
+    position: absolute;
+    opacity: 0;       /* Hide the actual radio button */
+}
+
+.role-option label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.25rem;
+    border: 2px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.role-option label .role-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.role-option label .role-name {
+    font-weight: 600;
+    color: var(--gray-700);
+}
+
+/* When radio is selected, highlight the card */
+.role-option input[type="radio"]:checked + label {
+    border-color: var(--primary);
+    background-color: var(--primary-light);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.role-option input[type="radio"]:checked + label .role-name {
+    color: var(--primary);
+}
+
+/* Checkbox grid for symptoms */
+.checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+.checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1.5px solid var(--gray-200);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+}
+
+.checkbox-item:hover {
+    border-color: var(--primary);
+    background-color: var(--primary-light);
+}
+
+.checkbox-item input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+}
+
+.checkbox-item input[type="checkbox"]:checked + span {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+
+/* =====================================================
+   8. BUTTONS
+   ===================================================== */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.7rem 1.5rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    line-height: 1.4;
+}
+
+.btn:hover {
+    text-decoration: none;
+}
+
+/* Primary blue button */
+.btn-primary {
+    background-color: var(--primary);
+    color: var(--white);
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+/* Green success button */
+.btn-success {
+    background-color: var(--green);
+    color: var(--white);
+}
+
+.btn-success:hover {
+    background-color: #047857;
+    transform: translateY(-1px);
+}
+
+/* Red danger button */
+.btn-danger {
+    background-color: var(--danger);
+    color: var(--white);
+}
+
+.btn-danger:hover {
+    background-color: #b91c1c;
+    transform: translateY(-1px);
+}
+
+/* Outline / secondary button */
+.btn-secondary {
+    background-color: var(--white);
+    color: var(--gray-700);
+    border: 1.5px solid var(--gray-300);
+}
+
+.btn-secondary:hover {
+    background-color: var(--gray-50);
+    border-color: var(--gray-500);
+}
+
+/* Full-width button (for forms) */
+.btn-block {
+    width: 100%;
+}
+
+
+/* =====================================================
+   9. TABLES — For appointments, patients, billing data
+   ===================================================== */
+.table-responsive {
+    overflow-x: auto;              /* Horizontal scroll on small screens */
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--gray-200);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;      /* Remove gaps between cells */
+    font-size: 0.9rem;
+}
+
+table thead {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: var(--white);
+}
+
+table thead th {
+    padding: 0.85rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    white-space: nowrap;            /* Prevent header text wrapping */
+}
+
+table tbody td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--gray-100);
+    color: var(--gray-700);
+}
+
+/* Zebra striping — alternate row colors for readability */
+table tbody tr:nth-child(even) {
+    background-color: var(--gray-50);
+}
+
+table tbody tr:hover {
+    background-color: var(--primary-light);
+}
+
+
+/* =====================================================
+   10. STATUS BADGES — Colored labels for appointment status
+   ===================================================== */
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.7rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 50px;           /* Pill shape */
+    text-transform: capitalize;
+}
+
+.badge-pending {
+    background-color: var(--warning-light);
+    color: var(--warning);
+}
+
+.badge-confirmed {
+    background-color: var(--info-light);
+    color: var(--info);
+}
+
+.badge-completed {
+    background-color: var(--green-light);
+    color: var(--green);
+}
+
+.badge-cancelled {
+    background-color: var(--danger-light);
+    color: var(--danger);
+}
+
+/* Severity & Color badges */
+.badge-red {
+    background-color: var(--danger-light);
+    color: var(--danger);
+    border: 1px solid #fca5a5;
+}
+
+.badge-green {
+    background-color: var(--green-light);
+    color: #059669;
+    border: 1px solid #6ee7b7;
+}
+
+.badge-orange {
+    background-color: #fffbe6;
+    color: #d97706;
+    border: 1px solid #fde047;
+}
+
+.badge-blue {
+    background-color: var(--info-light);
+    color: var(--info);
+    border: 1px solid #bae6fd;
+}
+
+.badge-grey {
+    background-color: #f8fafc;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+}
+
+.badge-emergency {
+    background-color: var(--danger-light);
+    color: var(--danger);
+    border: 1px solid #fca5a5;
+    animation: pulse 2s ease-in-out infinite;   /* Pulsing animation for emergencies */
+}
+
+.badge-normal {
+    background-color: var(--info-light);
+    color: var(--info);
+    border: 1px solid #bae6fd;
+}
+
+.badge-followup {
+    background-color: #f8fafc;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+}
+
+/* Pulse animation for emergency badges */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+
+/* =====================================================
+   11. ALERT MESSAGES — Success, error, info, warning
+   ===================================================== */
+.alert {
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius);
+    margin-bottom: 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    border-left: 4px solid;
+}
+
+.alert-success {
+    background-color: var(--green-light);
+    color: #065f46;
+    border-left-color: var(--green);
+}
+
+.alert-error {
+    background-color: var(--danger-light);
+    color: #991b1b;
+    border-left-color: var(--danger);
+}
+
+.alert-warning {
+    background-color: var(--warning-light);
+    color: #92400e;
+    border-left-color: var(--warning);
+}
+
+.alert-info {
+    background-color: var(--info-light);
+    color: #075985;
+    border-left-color: var(--info);
+}
+
+
+/* =====================================================
+   12. MEDICAL DISCLAIMER — Safety notice on diagnosis results
+   ===================================================== */
+.disclaimer {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 2px solid var(--warning);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+    color: #78350f;
+}
+
+.disclaimer strong {
+    display: block;
+    font-size: 1rem;
+    margin-bottom: 0.3rem;
+    color: #92400e;
+}
+
+
+/* =====================================================
+   13. DIAGNOSIS RESULT — Styled result card
+   ===================================================== */
+.diagnosis-result {
+    background: linear-gradient(135deg, var(--primary-light), #e0f2fe);
+    border: 2px solid var(--primary);
+    border-radius: var(--radius-lg);
+    padding: 1.75rem;
+    margin: 1.5rem 0;
+}
+
+.diagnosis-result h3 {
+    color: var(--primary-dark);
+    font-size: 1.3rem;
+    margin-bottom: 0.75rem;
+}
+
+.diagnosis-result .confidence {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--green);
+    margin-bottom: 0.75rem;
+}
+
+.diagnosis-result .advice {
+    background-color: var(--white);
+    padding: 1rem;
+    border-radius: var(--radius);
+    color: var(--gray-700);
+    line-height: 1.7;
+}
+
+
+/* =====================================================
+   14. BILLING RECEIPT — Styled like a receipt
+   ===================================================== */
+.receipt {
+    background-color: var(--white);
+    border: 2px dashed var(--gray-300);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    max-width: 500px;
+    margin: 1.5rem auto;
+}
+
+.receipt-header {
+    text-align: center;
+    border-bottom: 2px solid var(--gray-200);
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+}
+
+.receipt-header h3 {
+    color: var(--primary);
+    font-size: 1.3rem;
+}
+
+.receipt-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    font-size: 0.95rem;
+}
+
+.receipt-row.total {
+    border-top: 2px solid var(--gray-900);
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--primary-dark);
+}
+
+.receipt-row .label {
+    color: var(--gray-500);
+}
+
+.receipt-row .discount {
+    color: var(--green);
+}
+
+
+/* =====================================================
+   15. AUTH PAGES — Login / Register page styling
+   ===================================================== */
+.auth-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--primary-bg), #dbeafe, #ecfdf5);
+    padding: 2rem;
+}
+
+.auth-card {
+    background-color: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 2.5rem;
+    width: 100%;
+    max-width: 520px;
+    border: 1px solid var(--gray-200);
+}
+
+.auth-card .auth-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.auth-card .auth-header .logo-icon {
+    font-size: 3rem;
+    display: block;
+    margin-bottom: 0.75rem;
+}
+
+.auth-card .auth-header h1 {
+    font-size: 1.5rem;
+    color: var(--gray-900);
+    margin-bottom: 0.3rem;
+}
+
+.auth-card .auth-header p {
+    color: var(--gray-500);
+    font-size: 0.9rem;
+}
+
+.auth-footer {
+    text-align: center;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--gray-200);
+    font-size: 0.9rem;
+    color: var(--gray-500);
+}
+
+
+/* =====================================================
+   16. QUICK LINKS — Dashboard action cards
+   ===================================================== */
+.quick-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.quick-link-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 1.75rem 1rem;
+    background-color: var(--white);
+    border: 1.5px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    transition: all 0.2s ease;
+    text-decoration: none;
+    color: var(--gray-700);
+}
+
+.quick-link-card:hover {
+    border-color: var(--primary);
+    background-color: var(--primary-light);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+    text-decoration: none;
+    color: var(--primary);
+}
+
+.quick-link-card .link-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.quick-link-card .link-text {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+
+/* =====================================================
+   17. SECTION DIVIDERS & UTILITY CLASSES
+   ===================================================== */
+
+/* Toggleable sections (for role-specific form fields) */
+.role-fields {
+    display: none;              /* Hidden by default, shown via JavaScript */
+    padding: 1rem;
+    margin-top: 0.5rem;
+    border: 1.5px dashed var(--gray-300);
+    border-radius: var(--radius);
+    background-color: var(--gray-50);
+}
+
+.role-fields.active {
+    display: block;             /* Show when this role is selected */
+}
+
+/* Welcome banner on dashboard */
+.welcome-banner {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: var(--white);
+    padding: 2rem;
+    border-radius: var(--radius-lg);
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow-md);
+}
+
+.welcome-banner h2 {
+    font-size: 1.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.welcome-banner p {
+    opacity: 0.9;
+    font-size: 0.95rem;
+}
+
+/* Text alignment utilities */
+.text-center { text-align: center; }
+.text-right  { text-align: right; }
+
+/* Margin utilities */
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+
+/* Flex utility */
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+
+/* =====================================================
+   18. RESPONSIVE DESIGN — Adjustments for small screens
+   ===================================================== */
+
+/* Tablets and smaller (below 768px) */
+@media (max-width: 768px) {
+    .navbar {
+        padding: 0 1rem;
+        height: auto;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 1rem;
+    }
+
+    .navbar-links {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .container {
+        padding: 1rem;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;   /* Stack form columns on mobile */
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .auth-card {
+        padding: 1.5rem;
+    }
+
+    .checkbox-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* Phones (below 480px) */
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .role-selector {
+        flex-direction: column;
+    }
+
+    .checkbox-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .quick-links {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* =====================================================
+   ==== ANIMATIONS ====
+   Subtle, professional micro-interactions & transitions
+   ===================================================== */
+
+/* 1. Page Entrance Fade-in */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.container,
+.auth-card {
+    animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 2. Button Smooth Transitions & Press Effect */
+.btn {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+                box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+                background-color 0.2s ease, 
+                opacity 0.2s ease !important;
+}
+
+.btn:hover {
+    transform: translateY(-1.5px) scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.btn:active {
+    transform: translateY(0) scale(0.98);
+    box-shadow: none;
+}
+
+.btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* 3. Form Input Smooth Glow & Focus */
+.form-group input,
+.form-group select,
+.form-group textarea {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+/* 4. Card Hover Lift & Shadow Expansion */
+.card,
+.stat-card,
+.quick-link-card,
+.chart-card {
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), 
+                box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card:hover,
+.stat-card:hover,
+.quick-link-card:hover,
+.chart-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+}
+
+/* 5. Table Rows Smooth Hover */
+table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+/* 6. Alert Slide-down & Fade-in */
+@keyframes slideDownAlert {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.alert {
+    animation: slideDownAlert 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 7. Diagnosis Result Card Entrance */
+@keyframes slideUpCard {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.diagnosis-result {
+    animation: slideUpCard 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 8. Badge Micro Fade-in */
+.badge {
+    transition: all 0.2s ease;
+}
+
+
+/* =====================================================
+   ==== LANDING PAGE (index.php) ====
+   Hero section, feature cards, and footer
+   ===================================================== */
+
+/* Hero Section — light background matching site theme, right-aligned */
+.hero {
+    background: var(--primary-bg);
+    color: var(--gray-900);
+    text-align: right;
+    padding: 5rem 2rem 4.5rem;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Subtle decorative circle accents */
+.hero::before {
+    content: '';
+    position: absolute;
+    top: -80px;
+    right: -80px;
+    width: 320px;
+    height: 320px;
+    border-radius: 50%;
+    background: rgba(37, 99, 235, 0.04);
+    pointer-events: none;
+}
+
+.hero::after {
+    content: '';
+    position: absolute;
+    bottom: -60px;
+    left: -60px;
+    width: 240px;
+    height: 240px;
+    border-radius: 50%;
+    background: rgba(37, 99, 235, 0.03);
+    pointer-events: none;
+}
+
+.hero-content {
+    margin-left: 0;
+    margin-right: 0;
+    position: relative;
+    z-index: 1;
+    animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hero-title {
+    font-size: 2.75rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1.15;
+    margin-bottom: 1rem;
+    color: var(--gray-900);
+    text-align: left;
+}
+
+.hero-subtitle {
+    font-size: 1.15rem;
+    line-height: 1.7;
+    color: var(--gray-500);
+    margin-bottom: 2rem;
+    max-width: 560px;
+    margin-left: 0;
+    margin-right: 0;
+    text-align: left;
+}
+
+/* "Get Started" CTA button — solid blue on light background */
+.hero-cta {
+    padding: 0.9rem 2.25rem !important;
+    font-size: 1.1rem !important;
+    font-weight: 700;
+    border-radius: 50px !important;
+    background: var(--primary) !important;
+    color: var(--white) !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+}
+
+.hero-cta:hover {
+    background: var(--primary-dark) !important;
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.3);
+    text-decoration: none;
+}
+
+/* Feature Highlights — 3-column grid */
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+}
+
+/* Individual feature card */
+.feature-card {
+    text-align: center;
+    padding: 2rem 1.5rem;
+}
+
+.feature-card .feature-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.feature-card h3 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin-bottom: 0.5rem;
+}
+
+.feature-card p {
+    font-size: 0.9rem;
+    color: var(--gray-500);
+    line-height: 1.6;
+}
+
+/* Landing Page Footer */
+.landing-footer {
+    text-align: center;
+    padding: 1.75rem 1rem;
+    color: var(--gray-500);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--gray-200);
+    margin-top: 1rem;
+}
+
+/* Responsive: stack feature cards on smaller screens */
+@media (max-width: 768px) {
+    .hero {
+        padding: 3.5rem 1.5rem 3rem;
+        text-align: center;
+    }
+
+    .hero-content {
+        margin: 0 auto;
+    }
+
+    .hero-title {
+        font-size: 2rem;
+    }
+
+    .hero-subtitle {
+        font-size: 1rem;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .features-grid {
+        grid-template-columns: 1fr;
+    }
+}

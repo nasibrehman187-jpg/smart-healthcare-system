@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "functions": {
+    "healthcare/*.php": {
+      "runtime": "vercel-php@0.7.1"
+    }
+  },
+  "routes": [
+    {
+      "src": "/",
+      "dest": "/healthcare/index.php"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/healthcare/$1"
+    }
+  ]
+}
