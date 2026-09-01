@@ -64,9 +64,39 @@ if (isset($_SESSION['last_diagnosis'])) {
 <div class="container">
 
     <!-- Success Banner -->
-    <div class="alert alert-success" style="font-size: 1.05rem;">
-        ✅ <strong>Appointment booked successfully!</strong> Your appointment is pending confirmation.
+    <div class="alert alert-success" style="font-size: 1.05rem; margin-bottom: 1.25rem;">
+        ✅ <strong>Appointment Booked Successfully!</strong> Your payment has been confirmed.
     </div>
+
+    <!-- Official Token Number Card -->
+    <?php if (!empty($diagnosis['token_number'])): ?>
+    <div class="card" style="background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); border: 2px solid #86efac; border-radius: 12px; padding: 1.75rem; margin-bottom: 1.5rem; text-align: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.08);">
+        <div style="font-size: 0.85rem; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.08em;">
+            🎫 Your Official Appointment Token
+        </div>
+        <div style="font-size: 2.5rem; font-weight: 800; font-family: 'Courier New', Courier, monospace; color: #047857; letter-spacing: 0.08em; margin: 0.4rem 0;">
+            <?php echo htmlspecialchars($diagnosis['token_number']); ?>
+        </div>
+        <p style="margin: 0; color: #166534; font-size: 0.95rem;">
+            Please save or present this <strong>Token Number</strong> upon your arrival at the clinic reception.
+        </p>
+
+        <div style="display: flex; justify-content: center; gap: 2rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed #86efac; font-size: 0.9rem; color: #1e293b; flex-wrap: wrap;">
+            <?php if (!empty($diagnosis['doctor_name'])): ?>
+                <div><strong>Doctor:</strong> Dr. <?php echo htmlspecialchars($diagnosis['doctor_name']); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($diagnosis['appointment_time'])): ?>
+                <div><strong>Time:</strong> <?php echo date('M j, Y \a\t h:i A', strtotime($diagnosis['appointment_time'])); ?></div>
+            <?php endif; ?>
+            <?php if (isset($diagnosis['total_payable'])): ?>
+                <div><strong>Amount Paid:</strong> Rs. <?php echo number_format($diagnosis['total_payable'], 2); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($diagnosis['payment_method'])): ?>
+                <div><strong>Method:</strong> <?php echo htmlspecialchars($diagnosis['payment_method']); ?></div>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- =====================================================
          DIAGNOSIS RESULT — Preliminary Assessment

@@ -66,11 +66,13 @@ if ($role === 'patient') {
 if ($role === 'admin' || $role === 'doctor') {
 
     // -----------------------------------------------------
-    // 1. HANDLE BILL CREATION (POST)
+    // 1. HANDLE BILL CREATION (POST) — ADMIN ONLY
     // -----------------------------------------------------
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bill'])) {
 
-        if (!isset($_POST['csrf_token']) || !verifyCsrfToken($_POST['csrf_token'])) {
+        if ($role !== 'admin') {
+            $error = "Access denied: Only administrators are authorized to generate new bills.";
+        } elseif (!isset($_POST['csrf_token']) || !verifyCsrfToken($_POST['csrf_token'])) {
             $error = "Security validation failed. Please try again.";
         } else {
 
@@ -387,11 +389,13 @@ if ($role === 'admin' || $role === 'doctor') {
 
 
     <?php if ($role === 'admin' || $role === 'doctor'): ?>
-    <!-- =====================================================
-         BILL CREATION FORM (Admin / Doctor only)
-         ===================================================== -->
-    <div class="card">
-        <div class="card-header">➕ Create New Bill</div>
+
+        <?php if ($role === 'admin'): ?>
+        <!-- =====================================================
+             BILL CREATION FORM (Admin Only)
+             ===================================================== -->
+        <div class="card">
+            <div class="card-header">➕ Create New Bill</div>
 
         <?php if ($unbilled->num_rows > 0): ?>
             <form method="POST" action="" id="billingForm">
@@ -472,6 +476,16 @@ if ($role === 'admin' || $role === 'doctor') {
             </p>
         <?php endif; ?>
     </div>
+    <?php elseif ($role === 'doctor'): ?>
+    <div class="card" style="background-color: #f8fafc; border-left: 4px solid var(--primary); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;">
+        <div style="font-weight: 600; color: #1e293b; font-size: 1rem; margin-bottom: 0.25rem;">
+            ℹ️ Doctor Billing Overview
+        </div>
+        <p style="margin: 0; color: #64748b; font-size: 0.9rem;">
+            New patient bill generation is restricted to the <strong>Clinic Administrator</strong>. Below you can review billing records and payment statuses for appointments assigned to you.
+        </p>
+    </div>
+    <?php endif; ?>
 
     <!-- =====================================================
          EXISTING BILLS TABLE (Admin & Doctor view)

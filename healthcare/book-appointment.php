@@ -20,9 +20,10 @@ require 'db.php';
 requireLogin();
 requireRole('patient'); // Only patients can book appointments
 
-// Handle cancellation of pending diagnosis
+// Handle cancellation of pending diagnosis or booking
 if (isset($_GET['cancel_pending'])) {
     unset($_SESSION['pending_diagnosis']);
+    unset($_SESSION['pending_booking']);
     header("Location: dashboard.php");
     exit();
 }
@@ -44,7 +45,7 @@ $doctors_result = $conn->query(
      ORDER BY u.full_name ASC"
 );
 
-// Define available symptoms
+// All known symptoms for checkbox grid (key => friendly label)
 $all_symptoms = [
     'fever'                => '🌡️ Fever',
     'cough'                => '😷 Cough',
@@ -58,11 +59,38 @@ $all_symptoms = [
     'diarrhea'             => '🚽 Diarrhea',
     'chest_pain'           => '💔 Chest Pain',
     'sweating'             => '💦 Sweating',
-    'rash'                 => '🔴 Rash',
+    'rash'                 => '🔴 Skin Rash',
+    'fatigue'              => '🥱 Fatigue / Weakness',
+    'loss_of_appetite'     => '🍽️ Loss of Appetite',
+    'dizziness'            => '💫 Dizziness',
+    'sore_throat'          => '🧣 Sore Throat',
+    'runny_nose'           => '🤧 Runny Nose',
     'joint_pain'           => '🦴 Joint Pain',
-    'sore_throat'          => '🗣️ Sore Throat',
-    'swollen_glands'       => '😣 Swollen Glands'
+    'chills'               => '🥶 Chills'
 ];
+
+$error = '';
+
+// Determine current step
+$requested_step = intval($_GET['step'] ?? 1);
+
+// Step 2 Guard: Redirect to Step 1 if trying to jump to Step 2 without completing Step 1
+if ($requested_step === 2 && !isset($_SESSION['pending_diagnosis'])) {
+    header("Location: book-appointment.php?step=1");
+    exit();
+}
+
+// Step 3 Guard: Redirect to Step 2 if trying to jump to Step 3 without completing Step 2
+if ($requested_step === 3 && (!isset($_SESSION['pending_diagnosis']) || !isset($_SESSION['pending_booking']))) {
+    header("Location: book-appointment.php?step=2");
+    exit();
+}
+
+// Reset pending diagnosis on fresh GET to Step 1 (when no form submission is happening)
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && !isset($_GET['step']) && !isset($_GET['view_result'])) {
+    unset($_SESSION['pending_diagnosis']);
+    unset($_SESSION['pending_booking']);
+}
 
 // Keyword Map for optional free-text symptom matching (English + Roman Urdu)
 $keyword_map = [
@@ -84,21 +112,6 @@ $keyword_map = [
     'swollen_glands'       => ['swollen glands', 'gale ki sujan', 'swollen lymph', 'swelling in neck']
 ];
 
-$error = '';
-
-// Determine current step
-$requested_step = intval($_GET['step'] ?? 1);
-
-// Step 2 Guard: Redirect to Step 1 if trying to jump to Step 2 without completing Step 1
-if ($requested_step === 2 && !isset($_SESSION['pending_diagnosis'])) {
-    header("Location: book-appointment.php?step=1");
-    exit();
-}
-
-// Reset pending diagnosis on fresh GET to Step 1 (when no form submission is happening)
-if ($_SERVER['REQUEST_METHOD'] === 'GET' && !isset($_GET['step']) && !isset($_GET['view_result'])) {
-    unset($_SESSION['pending_diagnosis']);
-}
 
 // =====================================================
 // HANDLE FORM SUBMISSION (POST)
@@ -233,7 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
         // =================================================
-        // STEP 2 POST: DOCTOR SELECTION & FINAL BOOKING
+        // STEP 2 POST: DOCTOR SELECTION & SCHEDULE -> PROCEED TO STEP 3 (PAYMENT)
         // =================================================
         } elseif ($form_step === 2) {
 
@@ -256,95 +269,202 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "The appointment date and time must be in the future.";
             } else {
 
-                // --- Working Hours Check ---
-                $doc_hours_stmt = $conn->prepare("SELECT available_from, available_to FROM doctors WHERE doctor_id = ?");
+                // --- Working Hours Check & Doctor Info Fetch ---
+                $doc_hours_stmt = $conn->prepare(
+                    "SELECT d.available_from, d.available_to, d.consultation_fee, d.specialization, d.clinic_address, d.city, u.full_name AS doctor_name 
+                     FROM doctors d 
+                     JOIN users u ON d.user_id = u.user_id 
+                     WHERE d.doctor_id = ?"
+                );
                 $doc_hours_stmt->bind_param("i", $doctor_id);
                 $doc_hours_stmt->execute();
                 $doc_hours = $doc_hours_stmt->get_result()->fetch_assoc();
                 $doc_hours_stmt->close();
 
-                $requested_time_only = date('H:i:s', strtotime($appointment_time));
-                $hours_ok = true;
-                if ($doc_hours && !empty($doc_hours['available_from']) && !empty($doc_hours['available_to'])) {
-                    if ($requested_time_only < $doc_hours['available_from'] || $requested_time_only > $doc_hours['available_to']) {
-                        $hours_ok = false;
-                        $from_fmt = date('g:i A', strtotime($doc_hours['available_from']));
-                        $to_fmt   = date('g:i A', strtotime($doc_hours['available_to']));
-                        $error = "This doctor is only available from {$from_fmt} to {$to_fmt}. Please choose a time within those hours.";
+                if (!$doc_hours) {
+                    $error = "Selected doctor not found.";
+                } else {
+                    $requested_time_only = date('H:i:s', strtotime($appointment_time));
+                    $hours_ok = true;
+                    if (!empty($doc_hours['available_from']) && !empty($doc_hours['available_to'])) {
+                        if ($requested_time_only < $doc_hours['available_from'] || $requested_time_only > $doc_hours['available_to']) {
+                            $hours_ok = false;
+                            $from_fmt = date('g:i A', strtotime($doc_hours['available_from']));
+                            $to_fmt   = date('g:i A', strtotime($doc_hours['available_to']));
+                            $error = "This doctor is only available from {$from_fmt} to {$to_fmt}. Please choose a time within those hours.";
+                        }
+                    }
+
+                    if ($hours_ok) {
+                        // --- 5-Minute Buffer Gap + Exact Duplicate Check ---
+                        $requested_ts = strtotime($appointment_time);
+                        $buffer_seconds = 300; // 5 minutes
+                        $window_start = date('Y-m-d H:i:s', $requested_ts - $buffer_seconds);
+                        $window_end   = date('Y-m-d H:i:s', $requested_ts + $buffer_seconds);
+
+                        $conflict_stmt = $conn->prepare(
+                            "SELECT a.appointment_time, u.full_name AS doctor_name
+                             FROM appointments a
+                             JOIN doctors d ON a.doctor_id = d.doctor_id
+                             JOIN users u ON d.user_id = u.user_id
+                             WHERE a.doctor_id = ?
+                               AND a.appointment_time BETWEEN ? AND ?
+                               AND a.status IN ('Pending', 'Confirmed')
+                             ORDER BY a.appointment_time ASC
+                             LIMIT 1"
+                        );
+                        $conflict_stmt->bind_param("iss", $doctor_id, $window_start, $window_end);
+                        $conflict_stmt->execute();
+                        $conflict_result = $conflict_stmt->get_result();
+
+                        if ($conflict_result->num_rows > 0) {
+                            $conflict_row = $conflict_result->fetch_assoc();
+                            $conflict_ts  = strtotime($conflict_row['appointment_time']);
+                            $next_available_ts = $conflict_ts + $buffer_seconds;
+                            $next_available_fmt = date('g:i A', $next_available_ts);
+                            $doc_name_display = $conflict_row['doctor_name'];
+
+                            if ($appointment_time === $conflict_row['appointment_time']) {
+                                $error = "This exact time slot is already booked for Dr. {$doc_name_display}. The next available slot is {$next_available_fmt}.";
+                            } else {
+                                $error = "This time is too close to an existing appointment for Dr. {$doc_name_display}. The next available slot is {$next_available_fmt}.";
+                            }
+                            $conflict_stmt->close();
+                        } else {
+                            $conflict_stmt->close();
+
+                            // Calculate billing details (same 20% insurance discount formula as billing.php)
+                            $consultation_fee = floatval($doc_hours['consultation_fee']);
+                            
+                            // Check patient insurance
+                            $ins_stmt = $conn->prepare("SELECT insurance_number FROM patients WHERE patient_id = ?");
+                            $ins_stmt->bind_param("i", $patient_id);
+                            $ins_stmt->execute();
+                            $ins_row = $ins_stmt->get_result()->fetch_assoc();
+                            $ins_stmt->close();
+
+                            $has_insurance = !empty($ins_row['insurance_number']);
+                            $insurance_discount_percent = $has_insurance ? 20.00 : 0.00;
+                            $discount_amount = ($consultation_fee * $insurance_discount_percent) / 100;
+                            $total_payable   = $consultation_fee - $discount_amount;
+
+                            // Save booking parameters into SESSION — NO APPOINTMENT ROW INSERTED YET (Rule 3)
+                            $_SESSION['pending_booking'] = [
+                                'doctor_id'          => $doctor_id,
+                                'doctor_name'        => $doc_hours['doctor_name'],
+                                'specialization'     => $doc_hours['specialization'],
+                                'clinic_address'     => $doc_hours['clinic_address'],
+                                'city'               => $doc_hours['city'],
+                                'appointment_time'   => $appointment_time,
+                                'severity_level'     => $severity_level,
+                                'consultation_fee'   => $consultation_fee,
+                                'has_insurance'      => $has_insurance,
+                                'insurance_number'   => $ins_row['insurance_number'] ?? '',
+                                'discount_percent'   => $insurance_discount_percent,
+                                'discount_amount'    => $discount_amount,
+                                'total_payable'      => $total_payable
+                            ];
+
+                            unset($_SESSION['csrf_token']);
+                            header("Location: book-appointment.php?step=3");
+                            exit();
+                        }
                     }
                 }
+            }
 
-                if ($hours_ok) {
-                    // --- 5-Minute Buffer Gap + Exact Duplicate Check ---
-                    $requested_ts = strtotime($appointment_time);
-                    $buffer_seconds = 300; // 5 minutes
-                    $window_start = date('Y-m-d H:i:s', $requested_ts - $buffer_seconds);
-                    $window_end   = date('Y-m-d H:i:s', $requested_ts + $buffer_seconds);
+        // =================================================
+        // STEP 3 POST: PAYMENT CONFIRMATION & APPOINTMENT FINALIZATION
+        // =================================================
+        } elseif ($form_step === 3) {
 
-                    $conflict_stmt = $conn->prepare(
-                        "SELECT a.appointment_time, u.full_name AS doctor_name
-                         FROM appointments a
-                         JOIN doctors d ON a.doctor_id = d.doctor_id
-                         JOIN users u ON d.user_id = u.user_id
-                         WHERE a.doctor_id = ?
-                           AND a.appointment_time BETWEEN ? AND ?
-                           AND a.status IN ('Pending', 'Confirmed')
-                         ORDER BY a.appointment_time ASC
-                         LIMIT 1"
-                    );
-                    $conflict_stmt->bind_param("iss", $doctor_id, $window_start, $window_end);
-                    $conflict_stmt->execute();
-                    $conflict_result = $conflict_stmt->get_result();
+            if (!isset($_SESSION['pending_diagnosis']) || !isset($_SESSION['pending_booking'])) {
+                header("Location: book-appointment.php?step=1");
+                exit();
+            }
 
-                    if ($conflict_result->num_rows > 0) {
-                        $conflict_row = $conflict_result->fetch_assoc();
-                        $conflict_ts  = strtotime($conflict_row['appointment_time']);
-                        $next_available_ts = $conflict_ts + $buffer_seconds;
-                        $next_available_fmt = date('g:i A', $next_available_ts);
-                        $doc_name_display = $conflict_row['doctor_name'];
+            $booking = $_SESSION['pending_booking'];
+            $pending = $_SESSION['pending_diagnosis'];
 
-                        if ($appointment_time === $conflict_row['appointment_time']) {
-                            $error = "This exact time slot is already booked for Dr. {$doc_name_display}. The next available slot is {$next_available_fmt}.";
-                        } else {
-                            $error = "This time is too close to an existing appointment for Dr. {$doc_name_display}. The next available slot is {$next_available_fmt}.";
-                        }
-                        $conflict_stmt->close();
-                    } else {
-                        $conflict_stmt->close();
+            $doctor_id        = $booking['doctor_id'];
+            $severity_level   = $booking['severity_level'];
+            $appointment_time = $booking['appointment_time'];
+            $payment_method   = trim($_POST['payment_method'] ?? 'Cash at Reception');
 
-                    $pending = $_SESSION['pending_diagnosis'];
-                    $symptoms_str = implode(',', $pending['selected_symptoms']);
-                    $symptoms_text_raw = !empty($pending['symptoms_text']) ? $pending['symptoms_text'] : null;
-                    $diagnosed_disease = $pending['disease'];
+            // --- 5-Minute Buffer Gap + Exact Duplicate Check (Final Verification) ---
+            $requested_ts = strtotime($appointment_time);
+            $buffer_seconds = 300; // 5 minutes
+            $window_start = date('Y-m-d H:i:s', $requested_ts - $buffer_seconds);
+            $window_end   = date('Y-m-d H:i:s', $requested_ts + $buffer_seconds);
 
-                    // Insert into appointments table (including merged symptoms and patient's raw text description)
-                    $insert_appt = $conn->prepare(
-                        "INSERT INTO appointments (patient_id, doctor_id, severity_level, appointment_time, status, symptoms_selected, symptoms_text, diagnosed_disease)
-                         VALUES (?, ?, ?, ?, 'Pending', ?, ?, ?)"
-                    );
-                    $insert_appt->bind_param("iisssss", $patient_id, $doctor_id, $severity_level, $appointment_time, $symptoms_str, $symptoms_text_raw, $diagnosed_disease);
+            $conflict_stmt = $conn->prepare(
+                "SELECT appointment_id FROM appointments 
+                 WHERE doctor_id = ? 
+                   AND appointment_time BETWEEN ? AND ? 
+                   AND status IN ('Pending', 'Confirmed') 
+                 LIMIT 1"
+            );
+            $conflict_stmt->bind_param("iss", $doctor_id, $window_start, $window_end);
+            $conflict_stmt->execute();
+            if ($conflict_stmt->get_result()->num_rows > 0) {
+                $conflict_stmt->close();
+                $error = "This appointment time slot was just taken. Please return to Step 2 to select another time slot.";
+            } else {
+                $conflict_stmt->close();
 
-                    if ($insert_appt->execute()) {
-                        // Set final PRG result payload
-                        $new_appt_id = $conn->insert_id;
-                        $pending['appointment_id'] = $new_appt_id;
-                        $_SESSION['last_diagnosis'] = $pending;
+                $symptoms_str      = implode(',', $pending['selected_symptoms']);
+                $symptoms_text_raw = !empty($pending['symptoms_text']) ? $pending['symptoms_text'] : null;
+                $diagnosed_disease = $pending['disease'];
 
-                        // Log activity
-                        logActivity($_SESSION['user_id'], 'Booked Appointment', (string)$new_appt_id);
+                // Insert into appointments table ONLY AFTER payment is confirmed (Rule 3)
+                $insert_appt = $conn->prepare(
+                    "INSERT INTO appointments (patient_id, doctor_id, severity_level, appointment_time, status, symptoms_selected, symptoms_text, diagnosed_disease)
+                     VALUES (?, ?, ?, ?, 'Confirmed', ?, ?, ?)"
+                );
+                $insert_appt->bind_param("iisssss", $patient_id, $doctor_id, $severity_level, $appointment_time, $symptoms_str, $symptoms_text_raw, $diagnosed_disease);
 
-                        // Clear temporary pending state
-                        unset($_SESSION['pending_diagnosis']);
-                        unset($_SESSION['csrf_token']);
-
-                        // Redirect to final result page
-                        header("Location: appointment-result.php");
-                        exit();
-                    } else {
-                        $error = "Failed to book appointment. Please try again.";
-                    }
+                if ($insert_appt->execute()) {
+                    $new_appt_id = $conn->insert_id;
                     $insert_appt->close();
-                    }
+
+                    // Generate unique, human-readable Token Number: TK-YYYYMMDD-XXXX (e.g. TK-20260901-0017)
+                    $token_number = 'TK-' . date('Ymd') . '-' . str_pad($new_appt_id, 4, '0', STR_PAD_LEFT);
+
+                    $upd_tok = $conn->prepare("UPDATE appointments SET token_number = ? WHERE appointment_id = ?");
+                    $upd_tok->bind_param("si", $token_number, $new_appt_id);
+                    $upd_tok->execute();
+                    $upd_tok->close();
+
+                    // Pass booking and token details to PRG redirect
+                    $pending['appointment_id']   = $new_appt_id;
+                    $pending['token_number']     = $token_number;
+                    $pending['doctor_name']      = $booking['doctor_name'];
+                    $pending['specialization']   = $booking['specialization'];
+                    $pending['clinic_address']   = $booking['clinic_address'];
+                    $pending['city']             = $booking['city'];
+                    $pending['appointment_time'] = $booking['appointment_time'];
+                    $pending['severity_level']   = $booking['severity_level'];
+                    $pending['consultation_fee'] = $booking['consultation_fee'];
+                    $pending['discount_amount']  = $booking['discount_amount'];
+                    $pending['total_payable']    = $booking['total_payable'];
+                    $pending['payment_method']   = $payment_method;
+
+                    $_SESSION['last_diagnosis'] = $pending;
+
+                    // Log activity
+                    logActivity($_SESSION['user_id'], 'Booked Appointment', "Appt #{$new_appt_id} (Token: {$token_number}, Paid: Rs. " . number_format($booking['total_payable'], 2) . ")");
+
+                    // Clear temporary pending states
+                    unset($_SESSION['pending_diagnosis']);
+                    unset($_SESSION['pending_booking']);
+                    unset($_SESSION['csrf_token']);
+
+                    // Redirect to final result page
+                    header("Location: appointment-result.php");
+                    exit();
+                } else {
+                    $error = "Failed to complete appointment booking. Please try again.";
+                    $insert_appt->close();
                 }
             }
         }
@@ -353,8 +473,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $csrf_token = generateCsrfToken();
-$showing_step_1_result = (isset($_GET['view_result']) && isset($_SESSION['pending_diagnosis']));
-$showing_step_2_form   = ($requested_step === 2 && isset($_SESSION['pending_diagnosis']));
+$showing_step_1_result  = (isset($_GET['view_result']) && isset($_SESSION['pending_diagnosis']));
+$showing_step_2_form    = ($requested_step === 2 && isset($_SESSION['pending_diagnosis']));
+$showing_step_3_payment = ($requested_step === 3 && isset($_SESSION['pending_diagnosis']) && isset($_SESSION['pending_booking']));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -606,7 +727,7 @@ $showing_step_2_form   = ($requested_step === 2 && isset($_SESSION['pending_diag
 
                 <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                     <button type="submit" class="btn btn-primary" style="flex: 1; padding: 0.9rem; font-size: 1.05rem;">
-                        🩺 Complete Booking
+                        💳 Proceed to Payment & Confirmation →
                     </button>
                     <a href="book-appointment.php?cancel_pending=1" class="btn btn-secondary" style="padding: 0.9rem 1.5rem; text-align: center;">
                         ❌ Cancel
@@ -614,6 +735,139 @@ $showing_step_2_form   = ($requested_step === 2 && isset($_SESSION['pending_diag
                 </div>
             </div>
         </form>
+
+    <!-- =====================================================
+         VIEW 3: STEP 3 FORM — Payment Confirmation & Token Generation
+         ===================================================== -->
+    <?php elseif ($showing_step_3_payment): 
+        $booking = $_SESSION['pending_booking'];
+        $diag    = $_SESSION['pending_diagnosis'];
+    ?>
+
+        <!-- Step Progress Breadcrumb -->
+        <div class="card" style="padding: 1rem 1.5rem; margin-bottom: 1.5rem; background: #f8fafc; border-left: 4px solid var(--primary);">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.92rem; font-weight: 600; flex-wrap: wrap; gap: 0.5rem;">
+                <span style="color: #059669;">✔️ Step 1: Assessment</span>
+                <span style="color: #94a3b8;">➔</span>
+                <span style="color: #059669;">✔️ Step 2: Doctor & Schedule</span>
+                <span style="color: #94a3b8;">➔</span>
+                <span style="color: var(--primary);">💳 Step 3: Payment & Confirmation</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">💳 Step 3: Confirm Payment & Generate Token</div>
+
+            <!-- Booking Summary Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: var(--radius); padding: 1.25rem;">
+                    <div style="font-size: 0.78rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.05em;">Doctor Details</div>
+                    <div style="font-size: 1.15rem; font-weight: 700; color: var(--gray-900); margin-top: 0.35rem;">
+                        Dr. <?php echo htmlspecialchars($booking['doctor_name']); ?>
+                    </div>
+                    <div style="color: #475569; font-size: 0.9rem;"><?php echo htmlspecialchars($booking['specialization']); ?></div>
+                    <div style="color: #64748b; font-size: 0.85rem; margin-top: 0.35rem;">
+                        📍 <?php echo htmlspecialchars($booking['clinic_address'] . (!empty($booking['city']) ? ', ' . $booking['city'] : '')); ?>
+                    </div>
+                </div>
+
+                <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: var(--radius); padding: 1.25rem;">
+                    <div style="font-size: 0.78rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.05em;">Appointment Time</div>
+                    <div style="font-size: 1.05rem; font-weight: 700; color: var(--gray-900); margin-top: 0.35rem;">
+                        📅 <?php echo date('l, F j, Y', strtotime($booking['appointment_time'])); ?>
+                    </div>
+                    <div style="color: var(--primary); font-size: 1rem; font-weight: 700; margin-top: 0.2rem;">
+                        ⏰ <?php echo date('h:i A', strtotime($booking['appointment_time'])); ?>
+                    </div>
+                    <div style="margin-top: 0.35rem;">
+                        <span class="badge badge-<?php echo ($booking['severity_level'] === 'Emergency') ? 'red' : (($booking['severity_level'] === 'Follow-up') ? 'grey' : 'blue'); ?>">
+                            <?php echo htmlspecialchars($booking['severity_level']); ?> Priority
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment Fee Breakdown Box -->
+            <div style="background: #ffffff; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.75rem;">
+                <h4 style="margin-top: 0; margin-bottom: 1rem; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                    🧾 Consultation Fee Breakdown
+                </h4>
+
+                <div style="display: flex; justify-content: space-between; padding: 0.4rem 0; font-size: 0.95rem; color: #475569;">
+                    <span>Doctor Consultation Fee:</span>
+                    <span style="font-weight: 600;">Rs. <?php echo number_format($booking['consultation_fee'], 2); ?></span>
+                </div>
+
+                <?php if ($booking['has_insurance']): ?>
+                    <div style="display: flex; justify-content: space-between; padding: 0.4rem 0; font-size: 0.95rem; color: #059669;">
+                        <span>🛡️ Insurance Coverage (20% Discount):</span>
+                        <span style="font-weight: 700;">- Rs. <?php echo number_format($booking['discount_amount'], 2); ?></span>
+                    </div>
+                    <small style="color: #059669; display: block; margin-top: -0.2rem; margin-bottom: 0.35rem;">
+                        Policy #<?php echo htmlspecialchars($booking['insurance_number']); ?> automatically applied
+                    </small>
+                <?php else: ?>
+                    <div style="display: flex; justify-content: space-between; padding: 0.4rem 0; font-size: 0.95rem; color: #64748b;">
+                        <span>Insurance Coverage:</span>
+                        <span>None (Not Insured)</span>
+                    </div>
+                <?php endif; ?>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; border-top: 2px solid #0f172a; margin-top: 0.75rem; padding-top: 0.75rem;">
+                    <span style="font-size: 1.15rem; font-weight: 800; color: #0f172a;">TOTAL PAYABLE:</span>
+                    <span style="font-size: 1.45rem; font-weight: 800; color: #059669;">
+                        Rs. <?php echo number_format($booking['total_payable'], 2); ?>
+                    </span>
+                </div>
+            </div>
+
+            <!-- Payment Confirmation Form -->
+            <form method="POST" action="book-appointment.php?step=3">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
+                <input type="hidden" name="form_step" value="3">
+
+                <!-- Payment Method (Demo) -->
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label style="font-weight: 700; color: var(--gray-900); margin-bottom: 0.75rem; display: block;">
+                        Select Payment Method:
+                    </label>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+                        <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
+                            <input type="radio" name="payment_method" value="Cash at Reception" checked style="accent-color: var(--primary);">
+                            <div>
+                                <div style="font-weight: 700; color: #1e293b;">💵 Cash at Clinic</div>
+                                <small style="color: #64748b;">Pay at counter upon arrival</small>
+                            </div>
+                        </label>
+
+                        <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
+                            <input type="radio" name="payment_method" value="Credit/Debit Card (Demo)" style="accent-color: var(--primary);">
+                            <div>
+                                <div style="font-weight: 700; color: #1e293b;">💳 Debit / Credit Card</div>
+                                <small style="color: #64748b;">Simulated instant payment</small>
+                            </div>
+                        </label>
+
+                        <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
+                            <input type="radio" name="payment_method" value="JazzCash / EasyPaisa (Demo)" style="accent-color: var(--primary);">
+                            <div>
+                                <div style="font-weight: 700; color: #1e293b;">📱 Mobile Wallet</div>
+                                <small style="color: #64748b;">JazzCash / EasyPaisa Demo</small>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary" style="flex: 2; min-width: 240px; padding: 1rem 1.5rem; font-size: 1.1rem; font-weight: 700;">
+                        ✅ Confirm Payment & Book Appointment
+                    </button>
+                    <a href="book-appointment.php?step=2" class="btn btn-secondary" style="flex: 1; min-width: 160px; padding: 1rem; text-align: center;">
+                        ← Back to Schedule
+                    </a>
+                </div>
+            </form>
+        </div>
 
     <!-- =====================================================
          VIEW 1A: STEP 1 FORM — Symptom Assessment Input

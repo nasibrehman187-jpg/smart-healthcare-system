@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     severity_level ENUM('Emergency', 'Normal', 'Follow-up') NOT NULL,  -- Priority level
     appointment_time DATETIME NOT NULL,                 -- Scheduled date and time
     status ENUM('Pending', 'Confirmed', 'Completed', 'Cancelled') DEFAULT 'Pending',
+    token_number VARCHAR(50) DEFAULT NULL,              -- Unique booking token / reference code
     symptoms_selected VARCHAR(500) DEFAULT NULL,        -- Comma-separated list of symptoms chosen
     symptoms_text TEXT DEFAULT NULL,                    -- Patient's raw typed symptom description
     diagnosed_disease VARCHAR(100) DEFAULT NULL,        -- Preliminary assessment disease name

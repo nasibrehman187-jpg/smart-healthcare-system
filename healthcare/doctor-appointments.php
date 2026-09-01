@@ -106,7 +106,7 @@ $symptom_labels = [
 if ($filter === 'all') {
     // Show ALL appointments for this doctor
     $stmt = $conn->prepare(
-        "SELECT a.appointment_id, a.severity_level, a.appointment_time, a.status,
+        "SELECT a.appointment_id, a.token_number, a.severity_level, a.appointment_time, a.status,
                 a.symptoms_selected, a.symptoms_text, a.diagnosed_disease,
                 u.full_name AS patient_name, p.age, p.cnic, p.insurance_number
          FROM appointments a
@@ -118,7 +118,7 @@ if ($filter === 'all') {
 } else {
     // Show only TODAY's appointments (default view)
     $stmt = $conn->prepare(
-        "SELECT a.appointment_id, a.severity_level, a.appointment_time, a.status,
+        "SELECT a.appointment_id, a.token_number, a.severity_level, a.appointment_time, a.status,
                 a.symptoms_selected, a.symptoms_text, a.diagnosed_disease,
                 u.full_name AS patient_name, p.age, p.cnic, p.insurance_number
          FROM appointments a
@@ -213,7 +213,13 @@ $appointments = $stmt->get_result();
                         while ($appt = $appointments->fetch_assoc()): 
                         ?>
                             <tr>
-                                <td><?php echo $count++; ?></td>
+                                <td>
+                                    <strong>#<?php echo $appt['appointment_id']; ?></strong>
+                                    <br>
+                                    <span class="badge" style="font-family: 'Courier New', monospace; font-size: 0.75rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
+                                        <?php echo htmlspecialchars($appt['token_number'] ?? ('TK-' . str_pad($appt['appointment_id'], 4, '0', STR_PAD_LEFT))); ?>
+                                    </span>
+                                </td>
                                 <td>
                                     <strong><?php echo htmlspecialchars($appt['patient_name']); ?></strong>
                                     <br><small style="color: var(--gray-600);">Age: <?php echo htmlspecialchars($appt['age']); ?> | CNIC: <?php echo htmlspecialchars($appt['cnic']); ?></small>

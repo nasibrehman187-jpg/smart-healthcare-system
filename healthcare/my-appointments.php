@@ -32,7 +32,7 @@ $csrf_token = generateCsrfToken();
 
 // Fetch all appointments for this patient
 $stmt = $conn->prepare(
-    "SELECT a.appointment_id, a.severity_level, a.appointment_time, a.status, a.created_at,
+    "SELECT a.appointment_id, a.token_number, a.severity_level, a.appointment_time, a.status, a.created_at,
             u.full_name AS doctor_name, d.specialization, d.clinic_address, d.city, d.consultation_fee
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.doctor_id
@@ -104,6 +104,7 @@ $appointments = $stmt->get_result();
                     <thead>
                         <tr>
                             <th>#</th>
+                            <th>Token #</th>
                             <th>Doctor</th>
                             <th>Specialization</th>
                             <th>Clinic Location</th>
@@ -121,9 +122,16 @@ $appointments = $stmt->get_result();
                         while ($appt = $appointments->fetch_assoc()): 
                             $is_cancelled = ($appt['status'] === 'Cancelled');
                             $can_cancel   = in_array($appt['status'], ['Pending', 'Confirmed']);
+                            $token_display = $appt['token_number'] ?? ('TK-' . str_pad($appt['appointment_id'], 4, '0', STR_PAD_LEFT));
                         ?>
                             <tr class="<?php echo $is_cancelled ? 'status-cancelled' : ''; ?>">
                                 <td><?php echo $count++; ?></td>
+
+                                <td>
+                                    <span class="badge" style="font-family: 'Courier New', monospace; font-size: 0.82rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
+                                        <?php echo htmlspecialchars($token_display); ?>
+                                    </span>
+                                </td>
 
                                 <!-- Doctor name with "Dr." prefix -->
                                 <td class="doctor-name">Dr. <?php echo htmlspecialchars($appt['doctor_name']); ?></td>
