@@ -2,45 +2,49 @@
 // =====================================================
 // db.php — Database Connection + Session + CSRF Helpers
 // =====================================================
-// Standard MySQLi database connection for InfinityFree & XAMPP
+// This file is included at the top of EVERY PHP page.
+// It handles:
+//   1. Starting the session (for login tracking)
+//   2. Connecting to MySQL database
+//   3. CSRF token generation and verification (security)
 // =====================================================
 
-// Start native PHP session
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+// Start the session — this lets us track logged-in users across pages
+// Must be called before any HTML output
+session_start();
 
-// Set timezone to Pakistan Standard Time (UTC+5)
+// Set timezone to Pakistan Standard Time (UTC+5) — ensures PHP's time()
+// and strtotime() match MySQL's NOW() and the user's actual local clock.
+// Without this, php.ini's default (Europe/Berlin, UTC+2) causes a 3-hour
+// mismatch that breaks appointment time comparisons.
 date_default_timezone_set('Asia/Karachi');
 
-// Prevent browser caching of sensitive pages
+// Prevent browser caching of sensitive pages (forces browser to fetch fresh page on BACK button / logout)
 header("Cache-Control: no-cache, no-store, must-revalidate");
 header("Pragma: no-cache");
 header("Expires: 0");
 
 // =====================================================
-// DATABASE CONNECTION SETTINGS
-// Configure with your InfinityFree MySQL details (or XAMPP defaults)
+// DATABASE CONNECTION SETTINGS (XAMPP defaults)
 // =====================================================
-$host     = getenv('DB_HOST') ?: "localhost";          // e.g. sqlXXX.infinityfree.com
-$username = getenv('DB_USER') ?: "root";               // e.g. if0_XXXXXXXX
-$password = getenv('DB_PASS') !== false ? getenv('DB_PASS') : ""; // Hosting account password
-$database = getenv('DB_NAME') ?: "healthcare_system";  // e.g. if0_XXXXXXXX_healthcare
-$port     = getenv('DB_PORT') ? intval(getenv('DB_PORT')) : 3306;
+$host     = "localhost";        // XAMPP MySQL runs on localhost
+$username = "root";             // Default XAMPP username
+$password = "";                 // Default XAMPP has no password
+$database = "healthcare_system"; // Our database name from schema.sql
 
 // Create the MySQLi connection object
-$conn = @new mysqli($host, $username, $password, $database, $port);
+$conn = new mysqli($host, $username, $password, $database);
 
-// Check if the connection failed
+// Check if the connection failed — stop the page if it did
 if ($conn->connect_error) {
+    // die() stops the script and shows the error message
     die("Database Connection Failed: " . $conn->connect_error);
 }
 
-// Set UTF-8 character encoding
-$conn->set_charset("utf8mb4");
-
 // =====================================================
 // REMEMBER ME COOKIE AUTO-LOGIN
+// If user is NOT logged in via session, but has a valid 30-day remember_me cookie:
+// Validate selector + validator against remember_tokens table and auto-login
 // =====================================================
 if (!isset($_SESSION['user_id']) && !empty($_COOKIE['remember_me'])) {
     $cookie_parts = explode(':', $_COOKIE['remember_me']);
@@ -48,40 +52,46 @@ if (!isset($_SESSION['user_id']) && !empty($_COOKIE['remember_me'])) {
         $selector  = $cookie_parts[0];
         $validator = $cookie_parts[1];
 
+        // Look up unexpired token by selector
         $token_stmt = $conn->prepare(
             "SELECT token_id, user_id, hashed_validator FROM remember_tokens 
              WHERE selector = ? AND expires_at > NOW()"
         );
-        if ($token_stmt) {
-            $token_stmt->bind_param("s", $selector);
-            $token_stmt->execute();
-            $token_row = $token_stmt->get_result()->fetch_assoc();
-            $token_stmt->close();
+        $token_stmt->bind_param("s", $selector);
+        $token_stmt->execute();
+        $token_row = $token_stmt->get_result()->fetch_assoc();
+        $token_stmt->close();
 
-            if ($token_row && password_verify($validator, $token_row['hashed_validator'])) {
-                $user_stmt = $conn->prepare("SELECT user_id, full_name, email, role, status FROM users WHERE user_id = ?");
-                $user_stmt->bind_param("i", $token_row['user_id']);
-                $user_stmt->execute();
-                $user = $user_stmt->get_result()->fetch_assoc();
-                $user_stmt->close();
+        if ($token_row && password_verify($validator, $token_row['hashed_validator'])) {
+            // Token is valid! Fetch user and set session variables
+            $user_stmt = $conn->prepare("SELECT user_id, full_name, email, role, status FROM users WHERE user_id = ?");
+            $user_stmt->bind_param("i", $token_row['user_id']);
+            $user_stmt->execute();
+            $user = $user_stmt->get_result()->fetch_assoc();
+            $user_stmt->close();
 
-                if ($user && isset($user['status']) && $user['status'] === 'active') {
-                    $_SESSION['user_id']   = $user['user_id'];
-                    $_SESSION['full_name'] = $user['full_name'];
-                    $_SESSION['email']     = $user['email'];
-                    $_SESSION['role']      = $user['role'];
-                } else {
-                    setcookie('remember_me', '', time() - 3600, '/');
-                }
+            if ($user && isset($user['status']) && $user['status'] === 'active') {
+                $_SESSION['user_id']   = $user['user_id'];
+                $_SESSION['full_name'] = $user['full_name'];
+                $_SESSION['email']     = $user['email'];
+                $_SESSION['role']      = $user['role'];
             } else {
+                // Suspended or invalid user account — clear remember_me cookie
                 setcookie('remember_me', '', time() - 3600, '/');
             }
+        } else {
+            // Bad/expired token — clear cookie
+            setcookie('remember_me', '', time() - 3600, '/');
         }
     }
 }
 
 // =====================================================
 // ACTIVE SESSION SUSPENSION CHECK
+// Runs on every page load where a user session exists.
+// If an admin suspends a user while they are logged in,
+// immediately destroy their session, clear cookies, and
+// redirect them to login.php?suspended=1.
 // =====================================================
 if (isset($_SESSION['user_id']) && !defined('IS_STATUS_CHECK_API')) {
     $sus_stmt = $conn->prepare("SELECT status FROM users WHERE user_id = ?");
@@ -94,6 +104,7 @@ if (isset($_SESSION['user_id']) && !defined('IS_STATUS_CHECK_API')) {
         if ($sus_res && isset($sus_res['status']) && $sus_res['status'] === 'suspended') {
             $user_id_to_clear = $_SESSION['user_id'];
             
+            // Delete remember tokens for this user
             $del_tok = $conn->prepare("DELETE FROM remember_tokens WHERE user_id = ?");
             if ($del_tok) {
                 $del_tok->bind_param("i", $user_id_to_clear);
@@ -101,6 +112,7 @@ if (isset($_SESSION['user_id']) && !defined('IS_STATUS_CHECK_API')) {
                 $del_tok->close();
             }
 
+            // Clear session data & destroy session
             $_SESSION = array();
             if (ini_get("session.use_cookies")) {
                 $params = session_get_cookie_params();
@@ -112,8 +124,10 @@ if (isset($_SESSION['user_id']) && !defined('IS_STATUS_CHECK_API')) {
             session_unset();
             session_destroy();
 
+            // Clear remember_me cookie
             setcookie('remember_me', '', time() - 3600, '/');
 
+            // Redirect immediately to login.php?suspended=1
             header("Location: login.php?suspended=1");
             exit();
         }
@@ -121,38 +135,81 @@ if (isset($_SESSION['user_id']) && !defined('IS_STATUS_CHECK_API')) {
 }
 
 // =====================================================
-// CSRF & ACCESS CONTROL HELPER FUNCTIONS
+// CSRF TOKEN FUNCTIONS
+// =====================================================
+// CSRF (Cross-Site Request Forgery) tokens prevent attackers
+// from tricking users into submitting forms on other websites.
+// How it works:
+//   1. We generate a random token and store it in the session
+//   2. We put the token in a hidden input field in every form
+//   3. When the form is submitted, we check the token matches
+//   4. If it doesn't match, we reject the request
 // =====================================================
 
+/**
+ * Generate a CSRF token and store it in the session
+ * If a token already exists, return the existing one
+ * 
+ * @return string The CSRF token (64-character hex string)
+ */
 function generateCsrfToken() {
+    // Only generate a new token if one doesn't exist yet
     if (empty($_SESSION['csrf_token'])) {
+        // random_bytes(32) generates 32 random bytes
+        // bin2hex() converts those bytes to a 64-character hex string
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
     return $_SESSION['csrf_token'];
 }
 
+/**
+ * Verify that a submitted CSRF token matches the one in the session
+ * Uses hash_equals() for timing-safe comparison (prevents timing attacks)
+ * 
+ * @param string $token The token submitted from the form
+ * @return bool True if valid, false if invalid
+ */
 function verifyCsrfToken($token) {
-    if (empty($_SESSION['csrf_token']) || empty($token)) {
-        return false;
-    }
-    return hash_equals($_SESSION['csrf_token'], $token);
+    // Check that both the session token exists AND it matches the submitted one
+    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
 
+/**
+ * Redirect user to login page if they're not logged in
+ * Call this at the top of any page that requires authentication
+ */
 function requireLogin() {
     if (!isset($_SESSION['user_id'])) {
         header("Location: login.php");
-        exit();
+        exit(); // Stop script execution after redirect
     }
 }
 
-function requireRole($role) {
-    requireLogin();
-    if ($_SESSION['role'] !== $role) {
+/**
+ * Check if the logged-in user has a specific role
+ * Redirects to dashboard if they don't have permission
+ * 
+ * @param string|array $allowed_roles Single role string or array of allowed roles
+ */
+function requireRole($allowed_roles) {
+    // Convert single role string to array for consistent handling
+    if (!is_array($allowed_roles)) {
+        $allowed_roles = [$allowed_roles];
+    }
+    // If user's role is not in the allowed list, redirect them
+    if (!in_array($_SESSION['role'], $allowed_roles)) {
         header("Location: dashboard.php");
         exit();
     }
 }
 
+/**
+ * Log user action into activity_log table
+ * 
+ * @param int $user_id
+ * @param string $action
+ * @param string|null $details
+ */
 function logActivity($user_id, $action, $details = null) {
     global $conn;
     $stmt = $conn->prepare("INSERT INTO activity_log (user_id, action, details) VALUES (?, ?, ?)");
@@ -162,3 +219,4 @@ function logActivity($user_id, $action, $details = null) {
         $stmt->close();
     }
 }
+?>

@@ -13,7 +13,6 @@ vendor/
 *.zip
 bin/
 obj/
-cloudflared.exe
 
 # IDE & Editor files
 .vscode/
