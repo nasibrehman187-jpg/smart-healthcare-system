@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS appointments (
     appointment_time DATETIME NOT NULL,                 -- Scheduled date and time
     status ENUM('Pending', 'Confirmed', 'Completed', 'Cancelled') DEFAULT 'Pending',
     token_number VARCHAR(50) DEFAULT NULL,              -- Unique booking token / reference code
+    payment_method VARCHAR(50) DEFAULT 'Cash at Reception', -- Payment option selected
+    payment_tid VARCHAR(100) DEFAULT NULL,              -- Transaction ID for online demo payment (JazzCash/EasyPaisa)
+    payment_screenshot_path VARCHAR(255) DEFAULT NULL,  -- Relative path for payment proof screenshot
     symptoms_selected VARCHAR(500) DEFAULT NULL,        -- Comma-separated list of symptoms chosen
     symptoms_text TEXT DEFAULT NULL,                    -- Patient's raw typed symptom description
     diagnosed_disease VARCHAR(100) DEFAULT NULL,        -- Preliminary assessment disease name
@@ -110,6 +113,8 @@ CREATE TABLE IF NOT EXISTS billing (
     insurance_discount_percent DECIMAL(5,2) DEFAULT 0.00, -- 20% if insured, 0% otherwise
     total_amount DECIMAL(10,2) NOT NULL,                 -- Final calculated amount
     payment_status ENUM('Paid', 'Unpaid') DEFAULT 'Unpaid', -- Payment status tracking
+    payment_tid VARCHAR(100) DEFAULT NULL,              -- Transaction ID from online payment
+    payment_screenshot_path VARCHAR(255) DEFAULT NULL,  -- Screenshot receipt path
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (appointment_id) REFERENCES appointments(appointment_id) ON DELETE CASCADE
 );

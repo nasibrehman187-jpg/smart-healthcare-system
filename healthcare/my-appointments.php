@@ -32,7 +32,8 @@ $csrf_token = generateCsrfToken();
 
 // Fetch all appointments for this patient
 $stmt = $conn->prepare(
-    "SELECT a.appointment_id, a.token_number, a.severity_level, a.appointment_time, a.status, a.created_at,
+    "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+            a.severity_level, a.appointment_time, a.status, a.created_at,
             u.full_name AS doctor_name, d.specialization, d.clinic_address, d.city, d.consultation_fee
      FROM appointments a
      JOIN doctors d ON a.doctor_id = d.doctor_id
@@ -169,11 +170,26 @@ $appointments = $stmt->get_result();
                                 <!-- Consultation fee from doctor record -->
                                 <td>Rs. <?php echo number_format($appt['consultation_fee']); ?></td>
 
-                                <!-- Status badge with color coding -->
+                                <!-- Status badge with color coding and payment info -->
                                 <td>
                                     <span class="badge badge-<?php echo strtolower($appt['status']); ?>">
                                         <?php echo htmlspecialchars($appt['status']); ?>
                                     </span>
+                                    <div style="margin-top: 0.35rem; font-size: 0.78rem; color: #475569;">
+                                        <strong>Paid:</strong> <?php echo htmlspecialchars($appt['payment_method'] ?? 'Cash at Reception'); ?>
+                                    </div>
+                                    <?php if (!empty($appt['payment_tid'])): ?>
+                                        <div style="font-size: 0.74rem; color: #0284c7; font-family: monospace;">
+                                            <strong>TID:</strong> <?php echo htmlspecialchars($appt['payment_tid']); ?>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($appt['payment_screenshot_path'])): ?>
+                                        <div style="margin-top: 0.2rem;">
+                                            <a href="<?php echo htmlspecialchars($appt['payment_screenshot_path']); ?>" target="_blank" style="font-size: 0.74rem; color: #059669; font-weight: 700; text-decoration: underline;">
+                                                🖼️ My Proof
+                                            </a>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
 
                                 <!-- When the appointment was booked -->

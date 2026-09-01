@@ -45,7 +45,9 @@ if ($role === 'patient') {
     $stmt = $conn->prepare(
         "SELECT b.bill_id, b.consultation_fee, b.test_charges, 
                 b.insurance_discount_percent, b.total_amount, b.created_at,
-                a.appointment_time, a.severity_level,
+                a.appointment_time, a.severity_level, a.token_number, a.payment_method,
+                COALESCE(b.payment_tid, a.payment_tid) AS payment_tid,
+                COALESCE(b.payment_screenshot_path, a.payment_screenshot_path) AS payment_screenshot_path,
                 u.full_name AS doctor_name, d.specialization
          FROM billing b
          JOIN appointments a ON b.appointment_id = a.appointment_id
@@ -89,7 +91,8 @@ if ($role === 'admin' || $role === 'doctor') {
                 $stmt = $conn->prepare(
                     "SELECT d.consultation_fee, p.insurance_number,
                             u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
-                            d.specialization, a.appointment_time, a.severity_level
+                            d.specialization, a.appointment_time, a.severity_level,
+                            a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path
                      FROM appointments a
                      JOIN doctors d ON a.doctor_id = d.doctor_id
                      JOIN patients p ON a.patient_id = p.patient_id
@@ -113,32 +116,38 @@ if ($role === 'admin' || $role === 'doctor') {
                     $subtotal = $consultation_fee + $test_charges;
                     $discount_amount = ($subtotal * $insurance_discount_percent) / 100;
                     $total_amount = $subtotal - $discount_amount;
+                    $payment_tid = $appt_data['payment_tid'] ?? null;
+                    $payment_screenshot_path = $appt_data['payment_screenshot_path'] ?? null;
 
                     // --- Step 3: Insert bill into database ---
                     $insert_bill = $conn->prepare(
-                        "INSERT INTO billing (appointment_id, consultation_fee, test_charges, insurance_discount_percent, total_amount)
-                         VALUES (?, ?, ?, ?, ?)"
+                        "INSERT INTO billing (appointment_id, consultation_fee, test_charges, insurance_discount_percent, total_amount, payment_tid, payment_screenshot_path)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)"
                     );
-                    $insert_bill->bind_param("idddd", $appointment_id, $consultation_fee, $test_charges, $insurance_discount_percent, $total_amount);
+                    $insert_bill->bind_param("iddddss", $appointment_id, $consultation_fee, $test_charges, $insurance_discount_percent, $total_amount, $payment_tid, $payment_screenshot_path);
 
                     if ($insert_bill->execute()) {
                         $success = "Bill created successfully!";
 
                         // Build receipt data for display
                         $receipt = [
-                            'bill_id'         => $conn->insert_id,
-                            'patient_name'    => $appt_data['patient_name'],
-                            'doctor_name'     => $appt_data['doctor_name'],
-                            'specialization'  => $appt_data['specialization'],
-                            'appointment_time'=> $appt_data['appointment_time'],
-                            'severity'        => $appt_data['severity_level'],
-                            'consultation_fee'=> $consultation_fee,
-                            'test_charges'    => $test_charges,
-                            'subtotal'        => $subtotal,
-                            'has_insurance'   => $has_insurance,
-                            'discount_percent'=> $insurance_discount_percent,
-                            'discount_amount' => $discount_amount,
-                            'total_amount'    => $total_amount
+                            'bill_id'                => $conn->insert_id,
+                            'patient_name'           => $appt_data['patient_name'],
+                            'doctor_name'            => $appt_data['doctor_name'],
+                            'specialization'         => $appt_data['specialization'],
+                            'appointment_time'       => $appt_data['appointment_time'],
+                            'severity'               => $appt_data['severity_level'],
+                            'token_number'           => $appt_data['token_number'] ?? null,
+                            'payment_method'         => $appt_data['payment_method'] ?? 'Cash at Reception',
+                            'payment_tid'            => $payment_tid,
+                            'payment_screenshot_path'=> $payment_screenshot_path,
+                            'consultation_fee'       => $consultation_fee,
+                            'test_charges'           => $test_charges,
+                            'subtotal'               => $subtotal,
+                            'has_insurance'          => $has_insurance,
+                            'discount_percent'       => $insurance_discount_percent,
+                            'discount_amount'        => $discount_amount,
+                            'total_amount'           => $total_amount
                         ];
                     } else {
                         $error = "Failed to create bill. It may already exist.";
@@ -199,7 +208,8 @@ if ($role === 'admin' || $role === 'doctor') {
     // 4. FETCH UNBILLED APPOINTMENTS (AFTER POST PROCESSING)
     // -----------------------------------------------------
     if ($role === 'admin') {
-        $unbilled_query = "SELECT a.appointment_id, a.appointment_time, a.severity_level, a.status,
+        $unbilled_query = "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+                                  a.appointment_time, a.severity_level, a.status,
                                   u_p.full_name AS patient_name, p.insurance_number,
                                   u_d.full_name AS doctor_name, d.consultation_fee
                            FROM appointments a
@@ -219,7 +229,8 @@ if ($role === 'admin' || $role === 'doctor') {
         $stmt->close();
 
         $stmt = $conn->prepare(
-            "SELECT a.appointment_id, a.appointment_time, a.severity_level, a.status,
+            "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+                    a.appointment_time, a.severity_level, a.status,
                     u_p.full_name AS patient_name, p.insurance_number,
                     u_d.full_name AS doctor_name, d.consultation_fee
              FROM appointments a
@@ -243,7 +254,9 @@ if ($role === 'admin' || $role === 'doctor') {
             "SELECT b.bill_id, b.consultation_fee, b.test_charges, 
                     b.insurance_discount_percent, b.total_amount, b.payment_status, b.created_at,
                     u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
-                    a.appointment_time
+                    a.appointment_time, a.token_number, a.payment_method,
+                    COALESCE(b.payment_tid, a.payment_tid) AS payment_tid,
+                    COALESCE(b.payment_screenshot_path, a.payment_screenshot_path) AS payment_screenshot_path
              FROM billing b
              JOIN appointments a ON b.appointment_id = a.appointment_id
              JOIN patients p ON a.patient_id = p.patient_id
@@ -263,7 +276,9 @@ if ($role === 'admin' || $role === 'doctor') {
             "SELECT b.bill_id, b.consultation_fee, b.test_charges, 
                     b.insurance_discount_percent, b.total_amount, b.payment_status, b.created_at,
                     u_p.full_name AS patient_name, u_d.full_name AS doctor_name,
-                    a.appointment_time
+                    a.appointment_time, a.token_number, a.payment_method,
+                    COALESCE(b.payment_tid, a.payment_tid) AS payment_tid,
+                    COALESCE(b.payment_screenshot_path, a.payment_screenshot_path) AS payment_screenshot_path
              FROM billing b
              JOIN appointments a ON b.appointment_id = a.appointment_id
              JOIN patients p ON a.patient_id = p.patient_id
@@ -417,11 +432,11 @@ if ($role === 'admin' || $role === 'doctor') {
                                     data-fee="<?php echo $appt['consultation_fee']; ?>"
                                     data-insurance="<?php echo !empty($appt['insurance_number']) ? '1' : '0'; ?>"
                                     <?php if ($is_selected) echo 'selected'; ?>>
-                                #<?php echo $appt['appointment_id']; ?> — 
+                                #<?php echo $appt['appointment_id']; ?><?php echo !empty($appt['token_number']) ? ' (' . htmlspecialchars($appt['token_number']) . ')' : ''; ?> — 
                                 <?php echo htmlspecialchars($appt['patient_name']); ?> →
                                 Dr. <?php echo htmlspecialchars($appt['doctor_name']); ?> 
                                 (<?php echo date('M j, Y', strtotime($appt['appointment_time'])); ?>)
-                                [<?php echo $appt['status']; ?>]
+                                [<?php echo htmlspecialchars($appt['payment_method'] ?? 'Cash'); ?><?php echo !empty($appt['payment_tid']) ? ' | TID: ' . htmlspecialchars($appt['payment_tid']) : ''; ?>]
                                 <?php echo !empty($appt['insurance_number']) ? '🛡️ Insured' : ''; ?>
                             </option>
                         <?php endwhile; ?>
@@ -498,8 +513,10 @@ if ($role === 'admin' || $role === 'doctor') {
                 <thead>
                     <tr>
                         <th>Bill #</th>
+                        <th>Token #</th>
                         <th>Patient</th>
                         <th>Doctor</th>
+                        <th>Payment & Proof</th>
                         <th>Consultation</th>
                         <th>Tests</th>
                         <th>Discount</th>
@@ -515,8 +532,26 @@ if ($role === 'admin' || $role === 'doctor') {
                     ?>
                         <tr>
                             <td><strong>#<?php echo $bill['bill_id']; ?></strong></td>
+                            <td>
+                                <span class="badge" style="font-family: monospace; font-size: 0.78rem; font-weight: 700; background: #e0f2fe; color: #0369a1;">
+                                    <?php echo htmlspecialchars($bill['token_number'] ?? ('TK-' . str_pad($bill['bill_id'], 4, '0', STR_PAD_LEFT))); ?>
+                                </span>
+                            </td>
                             <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                             <td>Dr. <?php echo htmlspecialchars($bill['doctor_name']); ?></td>
+                            <td>
+                                <span style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">
+                                    <?php echo htmlspecialchars($bill['payment_method'] ?? 'Cash at Reception'); ?>
+                                </span>
+                                <?php if (!empty($bill['payment_tid'])): ?>
+                                    <br><small style="color: #475569;"><strong>TID:</strong> <code style="font-family: monospace; font-weight: 700; color: #0284c7; background: #f1f5f9; padding: 1px 4px; border-radius: 3px;"><?php echo htmlspecialchars($bill['payment_tid']); ?></code></small>
+                                <?php endif; ?>
+                                <?php if (!empty($bill['payment_screenshot_path'])): ?>
+                                    <br><a href="<?php echo htmlspecialchars($bill['payment_screenshot_path']); ?>" target="_blank" style="display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.78rem; color: #059669; font-weight: 700; text-decoration: underline; margin-top: 0.2rem;">
+                                        🖼️ View Screenshot
+                                    </a>
+                                <?php endif; ?>
+                            </td>
                             <td>Rs. <?php echo number_format($bill['consultation_fee'], 2); ?></td>
                             <td>Rs. <?php echo number_format($bill['test_charges'], 2); ?></td>
                             <td>
@@ -535,7 +570,7 @@ if ($role === 'admin' || $role === 'doctor') {
                             <td><?php echo date('M j, Y', strtotime($bill['created_at'])); ?></td>
                             <td>
                                 <?php if (!$is_paid): ?>
-                                    <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Confirm this payment has been received?');">
+                                    <form method="POST" action="" style="margin: 0 0 0.25rem 0;" onsubmit="return confirm('Confirm this payment has been received?');">
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                                         <input type="hidden" name="action" value="mark_paid">
                                         <input type="hidden" name="bill_id" value="<?php echo $bill['bill_id']; ?>">
@@ -544,8 +579,11 @@ if ($role === 'admin' || $role === 'doctor') {
                                         </button>
                                     </form>
                                 <?php else: ?>
-                                    <span style="color: #059669; font-size: 0.85rem; font-weight: 600;">✅ Paid</span>
+                                    <span style="color: #059669; font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 0.25rem;">✅ Paid</span>
                                 <?php endif; ?>
+                                <a href="view-receipt.php?bill_id=<?php echo $bill['bill_id']; ?>" target="_blank" class="btn btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; display: inline-block;">
+                                    🧾 Receipt
+                                </a>
                             </td>
                         </tr>
                     <?php endwhile; ?>
@@ -576,6 +614,40 @@ if ($role === 'admin' || $role === 'doctor') {
                     <span class="label">Appointment:</span>
                     <span><?php echo date('M j, Y h:i A', strtotime($bill['appointment_time'])); ?></span>
                 </div>
+
+                <?php if (!empty($bill['token_number'])): ?>
+                <div class="receipt-row">
+                    <span class="label">Token #:</span>
+                    <span style="font-family: monospace; font-weight: 700; color: #047857;">
+                        <?php echo htmlspecialchars($bill['token_number']); ?>
+                    </span>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!empty($bill['payment_method'])): ?>
+                <div class="receipt-row">
+                    <span class="label">Payment:</span>
+                    <span><?php echo htmlspecialchars($bill['payment_method']); ?></span>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!empty($bill['payment_tid'])): ?>
+                <div class="receipt-row">
+                    <span class="label">TID:</span>
+                    <code style="font-family: monospace; font-weight: 700; background: #e2e8f0; padding: 1px 5px; border-radius: 3px;">
+                        <?php echo htmlspecialchars($bill['payment_tid']); ?>
+                    </code>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!empty($bill['payment_screenshot_path'])): ?>
+                <div class="receipt-row">
+                    <span class="label">Proof:</span>
+                    <a href="<?php echo htmlspecialchars($bill['payment_screenshot_path']); ?>" target="_blank" style="color: #0284c7; font-weight: 600; text-decoration: underline;">
+                        🖼️ View Receipt Proof
+                    </a>
+                </div>
+                <?php endif; ?>
 
                 <hr style="border: 1px dashed #cbd5e1; margin: 0.75rem 0;">
 

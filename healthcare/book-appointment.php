@@ -391,80 +391,151 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $appointment_time = $booking['appointment_time'];
             $payment_method   = trim($_POST['payment_method'] ?? 'Cash at Reception');
 
-            // --- 5-Minute Buffer Gap + Exact Duplicate Check (Final Verification) ---
-            $requested_ts = strtotime($appointment_time);
-            $buffer_seconds = 300; // 5 minutes
-            $window_start = date('Y-m-d H:i:s', $requested_ts - $buffer_seconds);
-            $window_end   = date('Y-m-d H:i:s', $requested_ts + $buffer_seconds);
+            $allowed_methods = ['Cash at Reception', 'Debit/Credit Card (Demo)', 'JazzCash', 'EasyPaisa'];
+            if (!in_array($payment_method, $allowed_methods)) {
+                $payment_method = 'Cash at Reception';
+            }
 
-            $conflict_stmt = $conn->prepare(
-                "SELECT appointment_id FROM appointments 
-                 WHERE doctor_id = ? 
-                   AND appointment_time BETWEEN ? AND ? 
-                   AND status IN ('Pending', 'Confirmed') 
-                 LIMIT 1"
-            );
-            $conflict_stmt->bind_param("iss", $doctor_id, $window_start, $window_end);
-            $conflict_stmt->execute();
-            if ($conflict_stmt->get_result()->num_rows > 0) {
-                $conflict_stmt->close();
-                $error = "This appointment time slot was just taken. Please return to Step 2 to select another time slot.";
-            } else {
-                $conflict_stmt->close();
+            $payment_tid = null;
+            $payment_screenshot_path = null;
 
-                $symptoms_str      = implode(',', $pending['selected_symptoms']);
-                $symptoms_text_raw = !empty($pending['symptoms_text']) ? $pending['symptoms_text'] : null;
-                $diagnosed_disease = $pending['disease'];
+            // --- Server-side validation for JazzCash / EasyPaisa ---
+            if ($payment_method === 'JazzCash' || $payment_method === 'EasyPaisa') {
+                $payment_tid = trim($_POST['payment_tid'] ?? '');
 
-                // Insert into appointments table ONLY AFTER payment is confirmed (Rule 3)
-                $insert_appt = $conn->prepare(
-                    "INSERT INTO appointments (patient_id, doctor_id, severity_level, appointment_time, status, symptoms_selected, symptoms_text, diagnosed_disease)
-                     VALUES (?, ?, ?, ?, 'Confirmed', ?, ?, ?)"
-                );
-                $insert_appt->bind_param("iisssss", $patient_id, $doctor_id, $severity_level, $appointment_time, $symptoms_str, $symptoms_text_raw, $diagnosed_disease);
-
-                if ($insert_appt->execute()) {
-                    $new_appt_id = $conn->insert_id;
-                    $insert_appt->close();
-
-                    // Generate unique, human-readable Token Number: TK-YYYYMMDD-XXXX (e.g. TK-20260901-0017)
-                    $token_number = 'TK-' . date('Ymd') . '-' . str_pad($new_appt_id, 4, '0', STR_PAD_LEFT);
-
-                    $upd_tok = $conn->prepare("UPDATE appointments SET token_number = ? WHERE appointment_id = ?");
-                    $upd_tok->bind_param("si", $token_number, $new_appt_id);
-                    $upd_tok->execute();
-                    $upd_tok->close();
-
-                    // Pass booking and token details to PRG redirect
-                    $pending['appointment_id']   = $new_appt_id;
-                    $pending['token_number']     = $token_number;
-                    $pending['doctor_name']      = $booking['doctor_name'];
-                    $pending['specialization']   = $booking['specialization'];
-                    $pending['clinic_address']   = $booking['clinic_address'];
-                    $pending['city']             = $booking['city'];
-                    $pending['appointment_time'] = $booking['appointment_time'];
-                    $pending['severity_level']   = $booking['severity_level'];
-                    $pending['consultation_fee'] = $booking['consultation_fee'];
-                    $pending['discount_amount']  = $booking['discount_amount'];
-                    $pending['total_payable']    = $booking['total_payable'];
-                    $pending['payment_method']   = $payment_method;
-
-                    $_SESSION['last_diagnosis'] = $pending;
-
-                    // Log activity
-                    logActivity($_SESSION['user_id'], 'Booked Appointment', "Appt #{$new_appt_id} (Token: {$token_number}, Paid: Rs. " . number_format($booking['total_payable'], 2) . ")");
-
-                    // Clear temporary pending states
-                    unset($_SESSION['pending_diagnosis']);
-                    unset($_SESSION['pending_booking']);
-                    unset($_SESSION['csrf_token']);
-
-                    // Redirect to final result page
-                    header("Location: appointment-result.php");
-                    exit();
+                if (empty($payment_tid)) {
+                    $error = "Please enter the Transaction ID (TID) for your {$payment_method} transfer.";
+                } elseif (!isset($_FILES['payment_screenshot']) || $_FILES['payment_screenshot']['error'] === UPLOAD_ERR_NO_FILE) {
+                    $error = "Please upload the payment screenshot / receipt proof for your {$payment_method} transfer.";
+                } elseif ($_FILES['payment_screenshot']['error'] !== UPLOAD_ERR_OK) {
+                    $error = "Failed to upload payment screenshot. Please choose a valid image file.";
                 } else {
-                    $error = "Failed to complete appointment booking. Please try again.";
-                    $insert_appt->close();
+                    $fileTmp  = $_FILES['payment_screenshot']['tmp_name'];
+                    $fileSize = $_FILES['payment_screenshot']['size'];
+                    $origName = $_FILES['payment_screenshot']['name'];
+                    $ext      = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+                    $allowed_exts  = ['jpg', 'jpeg', 'png', 'webp'];
+                    $allowed_mimes = ['image/jpeg', 'image/png', 'image/webp'];
+
+                    if ($fileSize > 5 * 1024 * 1024) {
+                        $error = "Payment screenshot size must not exceed 5 MB.";
+                    } elseif (!in_array($ext, $allowed_exts)) {
+                        $error = "Invalid file type. Only JPG, PNG, and WEBP images are accepted as payment proof.";
+                    } else {
+                        $imgInfo = @getimagesize($fileTmp);
+                        if (!$imgInfo || !in_array($imgInfo['mime'], $allowed_mimes)) {
+                            $error = "Uploaded file is not a valid image.";
+                        } else {
+                            $upload_dir = __DIR__ . '/uploads/payments/';
+                            if (!is_dir($upload_dir)) {
+                                mkdir($upload_dir, 0755, true);
+                            }
+                            $filename   = 'pay_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+                            $targetPath = $upload_dir . $filename;
+
+                            if (move_uploaded_file($fileTmp, $targetPath)) {
+                                $payment_screenshot_path = 'uploads/payments/' . $filename;
+                            } else {
+                                $error = "Could not save payment screenshot on server. Please try again.";
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Only proceed with database insertion if no validation errors occurred
+            if (empty($error)) {
+                // --- 5-Minute Buffer Gap + Exact Duplicate Check (Final Verification) ---
+                $requested_ts = strtotime($appointment_time);
+                $buffer_seconds = 300; // 5 minutes
+                $window_start = date('Y-m-d H:i:s', $requested_ts - $buffer_seconds);
+                $window_end   = date('Y-m-d H:i:s', $requested_ts + $buffer_seconds);
+
+                $conflict_stmt = $conn->prepare(
+                    "SELECT appointment_id FROM appointments 
+                     WHERE doctor_id = ? 
+                       AND appointment_time BETWEEN ? AND ? 
+                       AND status IN ('Pending', 'Confirmed') 
+                     LIMIT 1"
+                );
+                $conflict_stmt->bind_param("iss", $doctor_id, $window_start, $window_end);
+                $conflict_stmt->execute();
+                if ($conflict_stmt->get_result()->num_rows > 0) {
+                    $conflict_stmt->close();
+                    $error = "This appointment time slot was just taken. Please return to Step 2 to select another time slot.";
+                } else {
+                    $conflict_stmt->close();
+
+                    $symptoms_str      = implode(',', $pending['selected_symptoms']);
+                    $symptoms_text_raw = !empty($pending['symptoms_text']) ? $pending['symptoms_text'] : null;
+                    $diagnosed_disease = $pending['disease'];
+
+                    // Insert into appointments table ONLY AFTER payment is confirmed (Rule 3)
+                    $insert_appt = $conn->prepare(
+                        "INSERT INTO appointments (patient_id, doctor_id, severity_level, appointment_time, status, payment_method, payment_tid, payment_screenshot_path, symptoms_selected, symptoms_text, diagnosed_disease)
+                         VALUES (?, ?, ?, ?, 'Confirmed', ?, ?, ?, ?, ?, ?)"
+                    );
+                    $insert_appt->bind_param(
+                        "iissssssss",
+                        $patient_id,
+                        $doctor_id,
+                        $severity_level,
+                        $appointment_time,
+                        $payment_method,
+                        $payment_tid,
+                        $payment_screenshot_path,
+                        $symptoms_str,
+                        $symptoms_text_raw,
+                        $diagnosed_disease
+                    );
+
+                    if ($insert_appt->execute()) {
+                        $new_appt_id = $conn->insert_id;
+                        $insert_appt->close();
+
+                        // Generate unique, human-readable Token Number: TK-YYYYMMDD-XXXX (e.g. TK-20260901-0017)
+                        $token_number = 'TK-' . date('Ymd') . '-' . str_pad($new_appt_id, 4, '0', STR_PAD_LEFT);
+
+                        $upd_tok = $conn->prepare("UPDATE appointments SET token_number = ? WHERE appointment_id = ?");
+                        $upd_tok->bind_param("si", $token_number, $new_appt_id);
+                        $upd_tok->execute();
+                        $upd_tok->close();
+
+                        // Pass booking and token details to PRG redirect
+                        $pending['appointment_id']          = $new_appt_id;
+                        $pending['token_number']            = $token_number;
+                        $pending['doctor_name']             = $booking['doctor_name'];
+                        $pending['specialization']          = $booking['specialization'];
+                        $pending['clinic_address']          = $booking['clinic_address'];
+                        $pending['city']                    = $booking['city'];
+                        $pending['appointment_time']        = $booking['appointment_time'];
+                        $pending['severity_level']          = $booking['severity_level'];
+                        $pending['consultation_fee']        = $booking['consultation_fee'];
+                        $pending['discount_amount']         = $booking['discount_amount'];
+                        $pending['total_payable']           = $booking['total_payable'];
+                        $pending['payment_method']          = $payment_method;
+                        $pending['payment_tid']             = $payment_tid;
+                        $pending['payment_screenshot_path'] = $payment_screenshot_path;
+
+                        $_SESSION['last_diagnosis'] = $pending;
+
+                        // Log activity
+                        $logDetail = "Appt #{$new_appt_id} (Token: {$token_number}, Method: {$payment_method}" . ($payment_tid ? ", TID: {$payment_tid}" : "") . ", Paid: Rs. " . number_format($booking['total_payable'], 2) . ")";
+                        logActivity($_SESSION['user_id'], 'Booked Appointment', $logDetail);
+
+                        // Clear temporary pending states
+                        unset($_SESSION['pending_diagnosis']);
+                        unset($_SESSION['pending_booking']);
+                        unset($_SESSION['csrf_token']);
+
+                        // Redirect to final result page
+                        header("Location: appointment-result.php");
+                        exit();
+                    } else {
+                        $error = "Failed to complete appointment booking. Please try again.";
+                        $insert_appt->close();
+                    }
                 }
             }
         }
@@ -822,18 +893,21 @@ $showing_step_3_payment = ($requested_step === 3 && isset($_SESSION['pending_dia
             </div>
 
             <!-- Payment Confirmation Form -->
-            <form method="POST" action="book-appointment.php?step=3">
+            <form method="POST" action="book-appointment.php?step=3" enctype="multipart/form-data" id="paymentConfirmationForm">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
                 <input type="hidden" name="form_step" value="3">
 
-                <!-- Payment Method (Demo) -->
+                <!-- Payment Method Selection -->
                 <div class="form-group" style="margin-bottom: 1.5rem;">
                     <label style="font-weight: 700; color: var(--gray-900); margin-bottom: 0.75rem; display: block;">
                         Select Payment Method:
                     </label>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+                    <?php 
+                        $selected_method = $_POST['payment_method'] ?? 'Cash at Reception'; 
+                    ?>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
                         <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
-                            <input type="radio" name="payment_method" value="Cash at Reception" checked style="accent-color: var(--primary);">
+                            <input type="radio" name="payment_method" value="Cash at Reception" <?php echo ($selected_method === 'Cash at Reception') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
                             <div>
                                 <div style="font-weight: 700; color: #1e293b;">💵 Cash at Clinic</div>
                                 <small style="color: #64748b;">Pay at counter upon arrival</small>
@@ -841,20 +915,104 @@ $showing_step_3_payment = ($requested_step === 3 && isset($_SESSION['pending_dia
                         </label>
 
                         <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
-                            <input type="radio" name="payment_method" value="Credit/Debit Card (Demo)" style="accent-color: var(--primary);">
+                            <input type="radio" name="payment_method" value="Debit/Credit Card (Demo)" <?php echo ($selected_method === 'Debit/Credit Card (Demo)') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
                             <div>
                                 <div style="font-weight: 700; color: #1e293b;">💳 Debit / Credit Card</div>
-                                <small style="color: #64748b;">Simulated instant payment</small>
+                                <small style="color: #64748b;">Instant demo payment</small>
                             </div>
                         </label>
 
                         <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
-                            <input type="radio" name="payment_method" value="JazzCash / EasyPaisa (Demo)" style="accent-color: var(--primary);">
+                            <input type="radio" name="payment_method" value="JazzCash" <?php echo ($selected_method === 'JazzCash') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
                             <div>
-                                <div style="font-weight: 700; color: #1e293b;">📱 Mobile Wallet</div>
-                                <small style="color: #64748b;">JazzCash / EasyPaisa Demo</small>
+                                <div style="font-weight: 700; color: #1e293b;">📱 JazzCash</div>
+                                <small style="color: #64748b;">Send to 03069364870</small>
                             </div>
                         </label>
+
+                        <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
+                            <input type="radio" name="payment_method" value="EasyPaisa" <?php echo ($selected_method === 'EasyPaisa') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
+                            <div>
+                                <div style="font-weight: 700; color: #1e293b;">📱 EasyPaisa</div>
+                                <small style="color: #64748b;">Send to 03069364870</small>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- =====================================================
+                     CHANGE 1 & 2: FIXED RECEIVING ACCOUNT & PROOF UPLOAD
+                     Displayed when JazzCash or EasyPaisa is selected
+                     ===================================================== -->
+                <?php 
+                    $is_mobile_wallet = in_array($selected_method, ['JazzCash', 'EasyPaisa']); 
+                ?>
+                <div id="mobile_payment_details_box" style="display: <?php echo $is_mobile_wallet ? 'block' : 'none'; ?>; margin-bottom: 1.5rem;">
+                    <div class="card" style="background: linear-gradient(135deg, #fff1f2 0%, #fff7ed 100%); border: 2px solid #f43f5e; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.08);">
+                        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem;">
+                            <span style="font-size: 1.5rem;">📲</span>
+                            <h4 style="margin: 0; color: #9f1239; font-size: 1.15rem; font-weight: 800;">
+                                Send Payment via <span id="selected_provider_name"><?php echo htmlspecialchars($selected_method === 'EasyPaisa' ? 'EasyPaisa' : 'JazzCash'); ?></span>
+                            </h4>
+                        </div>
+
+                        <p style="color: #475569; margin: 0 0 1rem 0; font-size: 0.95rem;">
+                            Please transfer the exact payable amount of <strong style="color: #059669; font-size: 1.05rem;">Rs. <?php echo number_format($booking['total_payable'], 2); ?></strong> to our official clinic receiving account:
+                        </p>
+
+                        <!-- Receiving Account Highlights -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; background: #ffffff; border: 2px dashed #fda4af; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;">
+                            <div>
+                                <div style="font-size: 0.78rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.05em;">
+                                    Account Title / Beneficiary
+                                </div>
+                                <div style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-top: 0.2rem;">
+                                    Azhar Iqbal
+                                </div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.78rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.05em;">
+                                    Receiving Mobile / Account Number
+                                </div>
+                                <div style="font-size: 1.35rem; font-weight: 800; color: #be123c; font-family: 'Courier New', monospace; letter-spacing: 0.05em; margin-top: 0.2rem;">
+                                    03069364870
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Proof Submission Fields -->
+                        <div style="background: rgba(255, 255, 255, 0.7); border-radius: 8px; padding: 1.25rem; border: 1px solid #fecdd3;">
+                            <div style="font-weight: 700; color: #9f1239; margin-bottom: 1rem; font-size: 0.98rem;">
+                                🧾 Provide Payment Proof (Required for Verification):
+                            </div>
+
+                            <!-- Transaction ID -->
+                            <div class="form-group" style="margin-bottom: 1.2rem;">
+                                <label for="payment_tid" style="font-weight: 700; color: #1e293b; display: block; margin-bottom: 0.35rem;">
+                                    Transaction ID (TID) <span class="required" style="color: #e11d48;">*</span>
+                                </label>
+                                <input type="text" id="payment_tid" name="payment_tid" 
+                                       value="<?php echo htmlspecialchars($_POST['payment_tid'] ?? ''); ?>"
+                                       placeholder="e.g. 0123456789 or 26081234567" 
+                                       style="width: 100%; font-family: monospace; font-size: 1.05rem; padding: 0.75rem; border: 1.5px solid #cbd5e1; border-radius: 6px;">
+                                <small style="color: #64748b; display: block; margin-top: 0.35rem;">
+                                    Enter the confirmation TID / Trx ID received in the SMS receipt from JazzCash / EasyPaisa.
+                                </small>
+                            </div>
+
+                            <!-- Screenshot Upload -->
+                            <div class="form-group" style="margin-bottom: 0.5rem;">
+                                <label for="payment_screenshot" style="font-weight: 700; color: #1e293b; display: block; margin-bottom: 0.35rem;">
+                                    Upload Payment Proof Screenshot <span class="required" style="color: #e11d48;">*</span>
+                                </label>
+                                <input type="file" id="payment_screenshot" name="payment_screenshot" 
+                                       accept="image/jpeg,image/png,image/webp" 
+                                       style="width: 100%; padding: 0.65rem; border: 1.5px solid #cbd5e1; border-radius: 6px; background: #ffffff;">
+                                <small style="color: #64748b; display: block; margin-top: 0.35rem;">
+                                    Upload a clear screenshot or photo of your payment success screen (JPG, PNG, WEBP — Max 5MB).
+                                </small>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1008,6 +1166,28 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 });
+
+function togglePaymentMethod(method) {
+    var box = document.getElementById('mobile_payment_details_box');
+    var providerName = document.getElementById('selected_provider_name');
+    var tidInput = document.getElementById('payment_tid');
+    var fileInput = document.getElementById('payment_screenshot');
+
+    if (!box) return;
+
+    if (method === 'JazzCash' || method === 'EasyPaisa') {
+        box.style.display = 'block';
+        if (providerName) {
+            providerName.textContent = method;
+        }
+        if (tidInput) tidInput.required = true;
+        if (fileInput) fileInput.required = true;
+    } else {
+        box.style.display = 'none';
+        if (tidInput) tidInput.required = false;
+        if (fileInput) fileInput.required = false;
+    }
+}
 </script>
 
 <?php require_once 'footer.php'; ?>

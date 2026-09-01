@@ -106,7 +106,8 @@ $symptom_labels = [
 if ($filter === 'all') {
     // Show ALL appointments for this doctor
     $stmt = $conn->prepare(
-        "SELECT a.appointment_id, a.token_number, a.severity_level, a.appointment_time, a.status,
+        "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+                a.severity_level, a.appointment_time, a.status,
                 a.symptoms_selected, a.symptoms_text, a.diagnosed_disease,
                 u.full_name AS patient_name, p.age, p.cnic, p.insurance_number
          FROM appointments a
@@ -118,7 +119,8 @@ if ($filter === 'all') {
 } else {
     // Show only TODAY's appointments (default view)
     $stmt = $conn->prepare(
-        "SELECT a.appointment_id, a.token_number, a.severity_level, a.appointment_time, a.status,
+        "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+                a.severity_level, a.appointment_time, a.status,
                 a.symptoms_selected, a.symptoms_text, a.diagnosed_disease,
                 u.full_name AS patient_name, p.age, p.cnic, p.insurance_number
          FROM appointments a
@@ -280,11 +282,26 @@ $appointments = $stmt->get_result();
 
                                 <td><?php echo date('D, M j \a\t h:i A', strtotime($appt['appointment_time'])); ?></td>
 
-                                <!-- Status badge -->
+                                <!-- Status badge & Payment Proof -->
                                 <td>
                                     <span class="badge badge-<?php echo strtolower($appt['status']); ?>">
                                         <?php echo htmlspecialchars($appt['status']); ?>
                                     </span>
+                                    <div style="margin-top: 0.35rem; font-size: 0.78rem; color: #475569;">
+                                        <strong>Pay:</strong> <?php echo htmlspecialchars($appt['payment_method'] ?? 'Cash'); ?>
+                                    </div>
+                                    <?php if (!empty($appt['payment_tid'])): ?>
+                                        <div style="font-size: 0.74rem; color: #0284c7; font-family: monospace;">
+                                            <strong>TID:</strong> <?php echo htmlspecialchars($appt['payment_tid']); ?>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($appt['payment_screenshot_path'])): ?>
+                                        <div style="margin-top: 0.2rem;">
+                                            <a href="<?php echo htmlspecialchars($appt['payment_screenshot_path']); ?>" target="_blank" style="font-size: 0.74rem; color: #059669; font-weight: 700; text-decoration: underline;">
+                                                🖼️ View Proof
+                                            </a>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
 
                                 <!-- Action buttons — only show if appointment is not completed/cancelled -->

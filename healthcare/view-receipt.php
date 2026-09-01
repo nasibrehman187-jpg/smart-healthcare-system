@@ -22,7 +22,9 @@ if ($bill_id <= 0) {
 $stmt = $conn->prepare(
     "SELECT b.bill_id, b.consultation_fee, b.test_charges, 
             b.insurance_discount_percent, b.total_amount, b.payment_status, b.created_at,
-            a.appointment_time, a.severity_level,
+            a.appointment_time, a.severity_level, a.token_number, a.payment_method,
+            COALESCE(b.payment_tid, a.payment_tid) AS payment_tid,
+            COALESCE(b.payment_screenshot_path, a.payment_screenshot_path) AS payment_screenshot_path,
             u_p.user_id AS patient_user_id, u_p.full_name AS patient_name, p.insurance_number,
             u_d.user_id AS doctor_user_id, u_d.full_name AS doctor_name, d.specialization
      FROM billing b
@@ -143,6 +145,40 @@ $back_url = ($role === 'patient') ? 'my-bills.php' : 'billing.php';
             <span class="label">Appointment Schedule:</span>
             <span><?php echo date('D, M j, Y \a\t h:i A', strtotime($bill['appointment_time'])); ?></span>
         </div>
+
+        <?php if (!empty($bill['token_number'])): ?>
+        <div class="receipt-row">
+            <span class="label">Appointment Token:</span>
+            <span style="font-family: monospace; font-weight: 800; color: #047857; font-size: 1.05rem;">
+                <?php echo htmlspecialchars($bill['token_number']); ?>
+            </span>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($bill['payment_method'])): ?>
+        <div class="receipt-row">
+            <span class="label">Payment Option:</span>
+            <span><?php echo htmlspecialchars($bill['payment_method']); ?></span>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($bill['payment_tid'])): ?>
+        <div class="receipt-row">
+            <span class="label">Transaction ID (TID):</span>
+            <code style="font-family: monospace; font-weight: 700; background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">
+                <?php echo htmlspecialchars($bill['payment_tid']); ?>
+            </code>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($bill['payment_screenshot_path'])): ?>
+        <div class="receipt-row no-print">
+            <span class="label">Payment Proof:</span>
+            <a href="<?php echo htmlspecialchars($bill['payment_screenshot_path']); ?>" target="_blank" style="color: #0284c7; font-weight: 600; text-decoration: underline;">
+                🖼️ View Uploaded Screenshot
+            </a>
+        </div>
+        <?php endif; ?>
 
         <hr style="border: 0; border-top: 1px dashed #cbd5e1; margin: 1rem 0;">
 

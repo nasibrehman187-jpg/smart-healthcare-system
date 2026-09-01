@@ -94,6 +94,12 @@ if (isset($_SESSION['last_diagnosis'])) {
             <?php if (!empty($diagnosis['payment_method'])): ?>
                 <div><strong>Method:</strong> <?php echo htmlspecialchars($diagnosis['payment_method']); ?></div>
             <?php endif; ?>
+            <?php if (!empty($diagnosis['payment_tid'])): ?>
+                <div><strong>TID:</strong> <code style="background: #dcfce7; padding: 2px 6px; border-radius: 4px; font-weight: 700;"><?php echo htmlspecialchars($diagnosis['payment_tid']); ?></code></div>
+            <?php endif; ?>
+            <?php if (!empty($diagnosis['payment_screenshot_path'])): ?>
+                <div><a href="<?php echo htmlspecialchars($diagnosis['payment_screenshot_path']); ?>" target="_blank" style="color: #047857; text-decoration: underline; font-weight: 600;">🖼️ View Payment Proof</a></div>
+            <?php endif; ?>
         </div>
     </div>
     <?php endif; ?>

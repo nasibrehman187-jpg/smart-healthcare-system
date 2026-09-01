@@ -1,0 +1,4 @@
+# Ignore all uploaded image files in git while preserving folder and security configuration
+*
+!.htaccess
+!.gitignore
