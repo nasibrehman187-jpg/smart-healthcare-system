@@ -13,6 +13,7 @@ vendor/
 *.zip
 bin/
 obj/
+portable/
 
 # IDE & Editor files
 .vscode/
