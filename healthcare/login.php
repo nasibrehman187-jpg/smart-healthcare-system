@@ -15,8 +15,9 @@
 // Include database connection and session/CSRF helpers
 require 'db.php';
 
-// If user is already logged in, redirect them to dashboard
-if (isset($_SESSION['user_id'])) {
+// If user is already logged in and requesting via GET, redirect them to dashboard.
+// If submitting credentials via POST, allow the login process to execute and override any stale session.
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_SESSION['user_id'])) {
     header("Location: dashboard.php");
     exit();
 }
@@ -83,10 +84,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (isset($user['status']) && $user['status'] === 'suspended') {
                         $error = "Your account has been suspended. Contact admin for assistance.";
                     } else {
+                        // --- Step 6: Regenerate session & set fresh session variables ---
+                        // Prevent session fixation & wipe out any old account's session data
+                        session_regenerate_id(true);
+                        $_SESSION = array();
 
-                        // --- Step 6: Set session variables ---
-                        // These persist across pages until logout
-                        $_SESSION['user_id']   = $user['user_id'];
+                        $_SESSION['user_id']   = (int)$user['user_id'];
                         $_SESSION['full_name'] = $user['full_name'];
                         $_SESSION['email']     = $user['email'];
                         $_SESSION['role']      = $user['role'];
@@ -111,9 +114,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             // Set HttpOnly 30-day cookie
                             setcookie('remember_me', $selector . ':' . $validator, time() + 30 * 24 * 60 * 60, '/', '', false, true);
+                        } else {
+                            // If Remember Me was not checked, invalidate any existing remember_me cookie
+                            // so a previously remembered account (e.g. patient) does not linger in browser
+                            if (!empty($_COOKIE['remember_me'])) {
+                                $cookie_parts = explode(':', $_COOKIE['remember_me']);
+                                if (count($cookie_parts) === 2) {
+                                    $del_stmt = $conn->prepare("DELETE FROM remember_tokens WHERE selector = ?");
+                                    $del_stmt->bind_param("s", $cookie_parts[0]);
+                                    $del_stmt->execute();
+                                    $del_stmt->close();
+                                }
+                            }
+                            setcookie('remember_me', '', time() - 3600, '/', '', false, true);
+                            unset($_COOKIE['remember_me']);
                         }
 
-                        // Clear the CSRF token so a new one is generated next time
+                        // Clear the CSRF token so a fresh one is generated next time
                         unset($_SESSION['csrf_token']);
 
                         // --- Step 7: Redirect to dashboard ---

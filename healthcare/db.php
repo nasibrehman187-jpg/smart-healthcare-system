@@ -27,26 +27,49 @@ header("Expires: 0");
 // =====================================================
 // DATABASE CONNECTION SETTINGS (XAMPP defaults)
 // =====================================================
-$host     = "localhost";        // XAMPP MySQL runs on localhost
+// Use 127.0.0.1 (IPv4) directly to avoid Windows localhost/::1 IPv6 connection refusal
+$host     = "127.0.0.1";
 $username = "root";             // Default XAMPP username
 $password = "";                 // Default XAMPP has no password
 $database = "healthcare_system"; // Our database name from schema.sql
+$port     = 3306;
 
-// Create the MySQLi connection object
-$conn = new mysqli($host, $username, $password, $database);
+// Try connecting via 127.0.0.1 on port 3306
+$conn = @new mysqli($host, $username, $password, $database, $port);
 
-// Check if the connection failed — stop the page if it did
+// If failed, try localhost fallback
 if ($conn->connect_error) {
-    // die() stops the script and shows the error message
-    die("Database Connection Failed: " . $conn->connect_error);
+    $conn = @new mysqli("localhost", $username, $password, $database, $port);
 }
+
+// If still failed, try port 3307 (in case portable MariaDB is active instead)
+if ($conn->connect_error) {
+    $conn = @new mysqli($host, $username, $password, $database, 3307);
+    if (!$conn->connect_error) {
+        $port = 3307;
+    }
+}
+
+// Check if connection failed — show a clear, friendly diagnostic message
+if ($conn->connect_error) {
+    die("<h3>Database Connection Failed</h3>" .
+        "<p><strong>Error:</strong> " . htmlspecialchars($conn->connect_error) . "</p>" .
+        "<p>Please ensure the MySQL / MariaDB service is started in your XAMPP Control Panel (Port 3306).</p>");
+}
+
+// Set UTF-8 character encoding
+$conn->set_charset("utf8mb4");
 
 // =====================================================
 // REMEMBER ME COOKIE AUTO-LOGIN
 // If user is NOT logged in via session, but has a valid 30-day remember_me cookie:
-// Validate selector + validator against remember_tokens table and auto-login
+// Validate selector + validator against remember_tokens table and auto-login.
+// Do NOT auto-login on login.php or logout.php so the user can freely log in
+// or switch accounts without being preemptively redirected by a stale cookie.
 // =====================================================
-if (!isset($_SESSION['user_id']) && !empty($_COOKIE['remember_me'])) {
+$currentPage = basename($_SERVER['PHP_SELF'] ?? '');
+
+if (!isset($_SESSION['user_id']) && !empty($_COOKIE['remember_me']) && $currentPage !== 'logout.php' && $currentPage !== 'login.php') {
     $cookie_parts = explode(':', $_COOKIE['remember_me']);
     if (count($cookie_parts) === 2) {
         $selector  = $cookie_parts[0];
