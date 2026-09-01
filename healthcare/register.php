@@ -74,79 +74,125 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "An account with this email already exists. Please use a different email or login.";
             } else {
 
-                // --- Step 5: Hash the password ---
-                // password_hash() automatically generates a safe bcrypt hash
-                // NEVER store the plain text password in the database!
-                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+                // --- Step 5: Pre-validate Role-Specific Fields & Profile Picture BEFORE User Insertion ---
+                $profile_picture_path = null;
 
-                // --- Step 6: Insert into users table ---
-                $insert_user = $conn->prepare(
-                    "INSERT INTO users (full_name, email, password, role, phone) VALUES (?, ?, ?, ?, ?)"
-                );
-                $insert_user->bind_param("sssss", $full_name, $email, $hashed_password, $role, $phone);
+                if ($role === 'patient') {
+                    $age     = intval($_POST['age'] ?? 0);
+                    $weight  = floatval($_POST['weight'] ?? 0);
+                    $cnic    = trim($_POST['cnic'] ?? '');
+                    $insurance = trim($_POST['insurance_number'] ?? '');
+                    $insurance = ($insurance !== '') ? $insurance : null;
 
-                if ($insert_user->execute()) {
-                    // Get the auto-generated user_id of the new user
-                    $new_user_id = $conn->insert_id;
+                    // 1. Mandatory Profile Picture Validation (Change 2)
+                    if (!isset($_FILES['profile_picture']) || $_FILES['profile_picture']['error'] === UPLOAD_ERR_NO_FILE) {
+                        $error = "Profile picture is mandatory for patient registration. Please upload your photo.";
+                    } elseif ($_FILES['profile_picture']['error'] !== UPLOAD_ERR_OK) {
+                        $error = "Error uploading profile picture. Please choose a valid image file.";
+                    } else {
+                        $fileTmp  = $_FILES['profile_picture']['tmp_name'];
+                        $fileSize = $_FILES['profile_picture']['size'];
+                        $origName = $_FILES['profile_picture']['name'];
+                        $ext      = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
 
-                    // --- Step 7: Insert role-specific data ---
-                    if ($role === 'patient') {
-                        // Collect patient-specific fields
-                        $age     = intval($_POST['age'] ?? 0);
-                        $weight  = floatval($_POST['weight'] ?? 0);
-                        $cnic    = trim($_POST['cnic'] ?? '');
-                        // insurance_number is optional — store NULL if empty
-                        $insurance = trim($_POST['insurance_number'] ?? '');
-                        $insurance = ($insurance !== '') ? $insurance : null;
+                        $allowed_exts  = ['jpg', 'jpeg', 'png', 'webp'];
+                        $allowed_mimes = ['image/jpeg', 'image/png', 'image/webp'];
 
-                        // Server-side age validation
+                        if ($fileSize > 5 * 1024 * 1024) {
+                            $error = "Profile picture size must not exceed 5 MB.";
+                        } elseif (!in_array($ext, $allowed_exts)) {
+                            $error = "Invalid file type. Only JPG, PNG, and WEBP images are accepted as profile pictures.";
+                        } else {
+                            $imgInfo = @getimagesize($fileTmp);
+                            if (!$imgInfo || !in_array($imgInfo['mime'], $allowed_mimes)) {
+                                $error = "Uploaded file is not a valid image.";
+                            }
+                        }
+                    }
+
+                    // 2. Patient Demographics Validation
+                    if (empty($error)) {
                         if ($age < 1 || $age > 120) {
                             $error = "Age must be between 1 and 120.";
-                            // We should delete the user we just inserted since patient data failed
-                            $conn->prepare("DELETE FROM users WHERE user_id = ?")->bind_param("i", $new_user_id);
+                        } elseif ($weight <= 0) {
+                            $error = "Weight must be greater than 0 kg.";
+                        } elseif (empty($cnic)) {
+                            $error = "CNIC number is required.";
+                        }
+                    }
+                } elseif ($role === 'doctor') {
+                    $specialization   = trim($_POST['specialization'] ?? '');
+                    $clinic_address   = trim($_POST['clinic_address'] ?? '');
+                    $city             = trim($_POST['city'] ?? '');
+                    $consultation_fee = floatval($_POST['consultation_fee'] ?? 500);
+                    $available_from   = $_POST['available_from'] ?? '09:00';
+                    $available_to     = $_POST['available_to'] ?? '17:00';
+
+                    if (empty($specialization)) {
+                        $error = "Please select a specialization.";
+                    }
+                }
+
+                // If pre-validation passed, handle file upload and insert user + role
+                if (empty($error)) {
+                    if ($role === 'patient') {
+                        $upload_dir = __DIR__ . '/uploads/profiles/';
+                        if (!is_dir($upload_dir)) {
+                            mkdir($upload_dir, 0755, true);
+                        }
+                        $filename = 'prof_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+                        $targetPath = $upload_dir . $filename;
+                        if (move_uploaded_file($fileTmp, $targetPath)) {
+                            $profile_picture_path = 'uploads/profiles/' . $filename;
                         } else {
-                            // Insert into patients table
+                            $error = "Could not save profile picture on server. Please try again.";
+                        }
+                    }
+                }
+
+                if (empty($error)) {
+                    // Hash password
+                    $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+
+                    // Insert into users table
+                    $insert_user = $conn->prepare(
+                        "INSERT INTO users (full_name, email, password, role, phone, profile_picture) VALUES (?, ?, ?, ?, ?, ?)"
+                    );
+                    $insert_user->bind_param("ssssss", $full_name, $email, $hashed_password, $role, $phone, $profile_picture_path);
+
+                    if ($insert_user->execute()) {
+                        $new_user_id = $conn->insert_id;
+                        $insert_user->close();
+
+                        if ($role === 'patient') {
                             $insert_patient = $conn->prepare(
-                                "INSERT INTO patients (user_id, age, weight, cnic, insurance_number) VALUES (?, ?, ?, ?, ?)"
+                                "INSERT INTO patients (user_id, age, weight, cnic, insurance_number, profile_picture) VALUES (?, ?, ?, ?, ?, ?)"
                             );
-                            $insert_patient->bind_param("iidss", $new_user_id, $age, $weight, $cnic, $insurance);
+                            $insert_patient->bind_param("iidsss", $new_user_id, $age, $weight, $cnic, $insurance, $profile_picture_path);
                             $insert_patient->execute();
                             $insert_patient->close();
-
-                            logActivity($new_user_id, 'Registered', $role);
-
-                            unset($_SESSION['csrf_token']);
-                            header("Location: login.php?registered=1");
-                            exit();
+                        } else {
+                            $insert_doctor = $conn->prepare(
+                                "INSERT INTO doctors (user_id, specialization, clinic_address, city, available_from, available_to, consultation_fee) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                            );
+                            $insert_doctor->bind_param("isssssd", $new_user_id, $specialization, $clinic_address, $city, $available_from, $available_to, $consultation_fee);
+                            $insert_doctor->execute();
+                            $insert_doctor->close();
                         }
-
-                    } elseif ($role === 'doctor') {
-                        // Collect doctor-specific fields
-                        $specialization   = trim($_POST['specialization'] ?? '');
-                        $clinic_address   = trim($_POST['clinic_address'] ?? '');
-                        $city             = trim($_POST['city'] ?? '');
-                        $consultation_fee = floatval($_POST['consultation_fee'] ?? 500);
-                        $available_from   = $_POST['available_from'] ?? '09:00';
-                        $available_to     = $_POST['available_to'] ?? '17:00';
-
-                        // Insert into doctors table
-                        $insert_doctor = $conn->prepare(
-                            "INSERT INTO doctors (user_id, specialization, clinic_address, city, available_from, available_to, consultation_fee) VALUES (?, ?, ?, ?, ?, ?, ?)"
-                        );
-                        $insert_doctor->bind_param("isssssd", $new_user_id, $specialization, $clinic_address, $city, $available_from, $available_to, $consultation_fee);
-                        $insert_doctor->execute();
-                        $insert_doctor->close();
 
                         logActivity($new_user_id, 'Registered', $role);
 
                         unset($_SESSION['csrf_token']);
                         header("Location: login.php?registered=1");
                         exit();
+                    } else {
+                        $error = "Failed to create account. Please try again.";
+                        $insert_user->close();
+                        if ($profile_picture_path && file_exists(__DIR__ . '/' . $profile_picture_path)) {
+                            @unlink(__DIR__ . '/' . $profile_picture_path);
+                        }
                     }
-                } else {
-                    $error = "Registration failed. Please try again.";
                 }
-                $insert_user->close();
             }
             $check_stmt->close();
         }
@@ -194,9 +240,10 @@ $csrf_token = generateCsrfToken();
              REGISTRATION FORM
              - action="" means it submits to itself (this page)
              - method="POST" sends data securely in the request body
+             - enctype="multipart/form-data" enables profile photo upload
              - onsubmit calls our JS validation function
              ===================================================== -->
-        <form method="POST" action="" id="registerForm" onsubmit="return validateForm()">
+        <form method="POST" action="" id="registerForm" enctype="multipart/form-data" onsubmit="return validateForm()">
 
             <!-- CSRF Token — hidden field for security -->
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
@@ -298,6 +345,13 @@ $csrf_token = generateCsrfToken();
                            placeholder="Leave empty if not insured"
                            value="<?php echo htmlspecialchars($_POST['insurance_number'] ?? ''); ?>">
                     <small style="color: #059669;">💡 Patients with insurance get 20% billing discount</small>
+                </div>
+
+                <!-- CHANGE 2: Mandatory Patient Profile Picture -->
+                <div class="form-group">
+                    <label for="profile_picture">Profile Picture <span class="required">*</span></label>
+                    <input type="file" id="profile_picture" name="profile_picture" accept="image/jpeg,image/png,image/webp">
+                    <small style="color: #64748b;">Upload a passport/face photo (JPG, PNG, or WEBP &mdash; Max 5MB)</small>
                 </div>
             </div>
 
@@ -445,6 +499,12 @@ function validateForm() {
 
     // --- Patient-specific validation ---
     if (role === 'patient') {
+        var picInput = document.getElementById('profile_picture');
+        if (!picInput || !picInput.files || picInput.files.length === 0) {
+            alert('Profile picture is mandatory for patient registration. Please select a photo.');
+            return false;
+        }
+
         var age = parseInt(document.getElementById('age').value);
         var cnic = document.getElementById('cnic').value.trim();
 

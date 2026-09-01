@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255) NOT NULL,                    -- Bcrypt hash from password_hash()
     role ENUM('patient', 'doctor', 'admin') NOT NULL,  -- Determines which dashboard they see
     phone VARCHAR(20) NOT NULL,                        -- Contact phone number
+    profile_picture VARCHAR(255) DEFAULT NULL,         -- Path to uploaded profile picture
     status ENUM('active', 'suspended') DEFAULT 'active', -- Account status
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP     -- Auto-set when account is created
 );
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS patients (
     weight DECIMAL(5,2) NOT NULL,                      -- Weight in kg
     cnic VARCHAR(15) NOT NULL,                         -- Pakistani CNIC: XXXXX-XXXXXXX-X
     insurance_number VARCHAR(50) DEFAULT NULL,          -- If set, patient gets billing discount
+    profile_picture VARCHAR(255) DEFAULT NULL,         -- Patient profile picture upload path
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     status ENUM('Pending', 'Confirmed', 'Completed', 'Cancelled') DEFAULT 'Pending',
     token_number VARCHAR(50) DEFAULT NULL,              -- Unique booking token / reference code
     payment_method VARCHAR(50) DEFAULT 'Cash at Reception', -- Payment option selected
+    payment_status ENUM('Pending', 'Paid') DEFAULT 'Pending', -- Payment verification status
     payment_tid VARCHAR(100) DEFAULT NULL,              -- Transaction ID for online demo payment (JazzCash/EasyPaisa)
     payment_screenshot_path VARCHAR(255) DEFAULT NULL,  -- Relative path for payment proof screenshot
     symptoms_selected VARCHAR(500) DEFAULT NULL,        -- Comma-separated list of symptoms chosen

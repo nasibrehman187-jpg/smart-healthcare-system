@@ -391,7 +391,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $appointment_time = $booking['appointment_time'];
             $payment_method   = trim($_POST['payment_method'] ?? 'Cash at Reception');
 
-            $allowed_methods = ['Cash at Reception', 'Debit/Credit Card (Demo)', 'JazzCash', 'EasyPaisa'];
+            $allowed_methods = ['Cash at Reception', 'JazzCash', 'EasyPaisa'];
             if (!in_array($payment_method, $allowed_methods)) {
                 $payment_method = 'Cash at Reception';
             }
@@ -471,18 +471,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $symptoms_text_raw = !empty($pending['symptoms_text']) ? $pending['symptoms_text'] : null;
                     $diagnosed_disease = $pending['disease'];
 
-                    // Insert into appointments table ONLY AFTER payment is confirmed (Rule 3)
+                    // Change 3: Determine payment status & token issuance policy
+                    $payment_status = ($payment_method === 'Cash at Reception') ? 'Pending' : 'Paid';
+                    $initial_token  = null;
+
+                    // Insert into appointments table ONLY AFTER payment step is submitted (Rule 3)
                     $insert_appt = $conn->prepare(
-                        "INSERT INTO appointments (patient_id, doctor_id, severity_level, appointment_time, status, payment_method, payment_tid, payment_screenshot_path, symptoms_selected, symptoms_text, diagnosed_disease)
-                         VALUES (?, ?, ?, ?, 'Confirmed', ?, ?, ?, ?, ?, ?)"
+                        "INSERT INTO appointments (patient_id, doctor_id, severity_level, appointment_time, status, payment_method, payment_status, token_number, payment_tid, payment_screenshot_path, symptoms_selected, symptoms_text, diagnosed_disease)
+                         VALUES (?, ?, ?, ?, 'Confirmed', ?, ?, ?, ?, ?, ?, ?, ?)"
                     );
                     $insert_appt->bind_param(
-                        "iissssssss",
+                        "iissssssssss",
                         $patient_id,
                         $doctor_id,
                         $severity_level,
                         $appointment_time,
                         $payment_method,
+                        $payment_status,
+                        $initial_token,
                         $payment_tid,
                         $payment_screenshot_path,
                         $symptoms_str,
@@ -494,17 +500,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $new_appt_id = $conn->insert_id;
                         $insert_appt->close();
 
-                        // Generate unique, human-readable Token Number: TK-YYYYMMDD-XXXX (e.g. TK-20260901-0017)
-                        $token_number = 'TK-' . date('Ymd') . '-' . str_pad($new_appt_id, 4, '0', STR_PAD_LEFT);
-
-                        $upd_tok = $conn->prepare("UPDATE appointments SET token_number = ? WHERE appointment_id = ?");
-                        $upd_tok->bind_param("si", $token_number, $new_appt_id);
-                        $upd_tok->execute();
-                        $upd_tok->close();
+                        // For JazzCash / EasyPaisa: Issue token immediately!
+                        // For Cash at Clinic: Token is DELAYED until Admin confirms payment
+                        $token_number = null;
+                        if ($payment_method !== 'Cash at Reception') {
+                            $token_number = 'TK-' . date('Ymd') . '-' . str_pad($new_appt_id, 4, '0', STR_PAD_LEFT);
+                            $upd_tok = $conn->prepare("UPDATE appointments SET token_number = ?, payment_status = 'Paid' WHERE appointment_id = ?");
+                            $upd_tok->bind_param("si", $token_number, $new_appt_id);
+                            $upd_tok->execute();
+                            $upd_tok->close();
+                        }
 
                         // Pass booking and token details to PRG redirect
                         $pending['appointment_id']          = $new_appt_id;
                         $pending['token_number']            = $token_number;
+                        $pending['payment_status']          = $payment_status;
+                        $pending['arrival_reminder']        = "Please arrive at least 15 minutes before your appointment time.";
                         $pending['doctor_name']             = $booking['doctor_name'];
                         $pending['specialization']          = $booking['specialization'];
                         $pending['clinic_address']          = $booking['clinic_address'];
@@ -521,7 +532,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['last_diagnosis'] = $pending;
 
                         // Log activity
-                        $logDetail = "Appt #{$new_appt_id} (Token: {$token_number}, Method: {$payment_method}" . ($payment_tid ? ", TID: {$payment_tid}" : "") . ", Paid: Rs. " . number_format($booking['total_payable'], 2) . ")";
+                        $logDetail = "Appt #{$new_appt_id} (" . ($token_number ? "Token: {$token_number}" : "Token: Pending Payment") . ", Method: {$payment_method}" . ($payment_tid ? ", TID: {$payment_tid}" : "") . ", Payable: Rs. " . number_format($booking['total_payable'], 2) . ")";
                         logActivity($_SESSION['user_id'], 'Booked Appointment', $logDetail);
 
                         // Clear temporary pending states
@@ -905,20 +916,12 @@ $showing_step_3_payment = ($requested_step === 3 && isset($_SESSION['pending_dia
                     <?php 
                         $selected_method = $_POST['payment_method'] ?? 'Cash at Reception'; 
                     ?>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
                         <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
                             <input type="radio" name="payment_method" value="Cash at Reception" <?php echo ($selected_method === 'Cash at Reception') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
                             <div>
                                 <div style="font-weight: 700; color: #1e293b;">💵 Cash at Clinic</div>
-                                <small style="color: #64748b;">Pay at counter upon arrival</small>
-                            </div>
-                        </label>
-
-                        <label style="border: 1.5px solid #cbd5e1; border-radius: var(--radius); padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; background: #f8fafc;">
-                            <input type="radio" name="payment_method" value="Debit/Credit Card (Demo)" <?php echo ($selected_method === 'Debit/Credit Card (Demo)') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
-                            <div>
-                                <div style="font-weight: 700; color: #1e293b;">💳 Debit / Credit Card</div>
-                                <small style="color: #64748b;">Instant demo payment</small>
+                                <small style="color: #64748b;">Pay at clinic to receive token</small>
                             </div>
                         </label>
 
@@ -926,7 +929,7 @@ $showing_step_3_payment = ($requested_step === 3 && isset($_SESSION['pending_dia
                             <input type="radio" name="payment_method" value="JazzCash" <?php echo ($selected_method === 'JazzCash') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
                             <div>
                                 <div style="font-weight: 700; color: #1e293b;">📱 JazzCash</div>
-                                <small style="color: #64748b;">Send to 03069364870</small>
+                                <small style="color: #64748b;">Instant token (03069364870)</small>
                             </div>
                         </label>
 
@@ -934,7 +937,7 @@ $showing_step_3_payment = ($requested_step === 3 && isset($_SESSION['pending_dia
                             <input type="radio" name="payment_method" value="EasyPaisa" <?php echo ($selected_method === 'EasyPaisa') ? 'checked' : ''; ?> onchange="togglePaymentMethod(this.value)" style="accent-color: var(--primary);">
                             <div>
                                 <div style="font-weight: 700; color: #1e293b;">📱 EasyPaisa</div>
-                                <small style="color: #64748b;">Send to 03069364870</small>
+                                <small style="color: #64748b;">Instant token (03069364870)</small>
                             </div>
                         </label>
                     </div>

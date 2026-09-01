@@ -68,6 +68,26 @@ if ($role === 'patient') {
     $total_bills = $stmt->get_result()->fetch_assoc()['total_bills'];
     $stmt->close();
 
+    // Step 6: Fetch profile picture and newly confirmed cash appointments (Change 2 & 3)
+    $upic_stmt = $conn->prepare("SELECT profile_picture FROM users WHERE user_id = ?");
+    $upic_stmt->bind_param("i", $user_id);
+    $upic_stmt->execute();
+    $user_pic = $upic_stmt->get_result()->fetch_assoc()['profile_picture'] ?? null;
+    $upic_stmt->close();
+
+    $confirmed_cash_tokens = $conn->query(
+        "SELECT a.appointment_id, a.token_number, a.appointment_time, u_d.full_name AS doctor_name 
+         FROM appointments a 
+         JOIN doctors d ON a.doctor_id = d.doctor_id 
+         JOIN users u_d ON d.user_id = u_d.user_id 
+         WHERE a.patient_id = {$patient_id} 
+           AND a.payment_method = 'Cash at Reception' 
+           AND a.payment_status = 'Paid' 
+           AND a.token_number IS NOT NULL 
+           AND a.status IN ('Pending', 'Confirmed')
+         ORDER BY a.appointment_time DESC LIMIT 3"
+    );
+
 } elseif ($role === 'doctor') {
     // --- DOCTOR DATA ---
 
@@ -169,6 +189,7 @@ $csrf_token = generateCsrfToken();
             <li><a href="book-appointment.php">📋 Book Appointment</a></li>
             <li><a href="my-appointments.php">📅 My Appointments</a></li>
             <li><a href="my-bills.php">💰 My Bills</a></li>
+            <li><a href="profile.php">👤 My Profile</a></li>
         <?php elseif ($role === 'doctor'): ?>
             <!-- Doctor-specific navigation links -->
             <li><a href="doctor-appointments.php">📅 Today's Appointments</a></li>
@@ -207,11 +228,43 @@ $csrf_token = generateCsrfToken();
     <?php endif; ?>
 
     <!-- Welcome Banner — shown for all roles -->
-    <div class="welcome-banner">
-        <h2>👋 Welcome, <?php echo htmlspecialchars($full_name); ?>!</h2>
-        <p>You are logged in as <strong><?php echo htmlspecialchars(ucfirst($role)); ?></strong> 
-           — <?php echo date('l, F j, Y'); ?></p>
+    <div class="welcome-banner" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+        <div>
+            <h2>👋 Welcome, <?php echo htmlspecialchars($full_name); ?>!</h2>
+            <p>You are logged in as <strong><?php echo htmlspecialchars(ucfirst($role)); ?></strong> 
+               — <?php echo date('l, F j, Y'); ?></p>
+        </div>
+        <?php if (!empty($user_pic)): ?>
+            <div style="flex-shrink: 0;">
+                <img src="<?php echo htmlspecialchars($user_pic); ?>" alt="Profile Avatar" 
+                     style="width: 58px; height: 58px; border-radius: 50%; object-fit: cover; border: 2.5px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+            </div>
+        <?php endif; ?>
     </div>
+
+    <!-- CHANGE 4: Arrival Reminder Alert for Patients -->
+    <?php if ($role === 'patient'): ?>
+    <div class="alert alert-info" style="background: #eff6ff; border: 1.5px solid #3b82f6; color: #1e40af; border-radius: 8px; padding: 0.75rem 1.25rem; margin-bottom: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 0.6rem;">
+        <span style="font-size: 1.25rem;">⏰</span>
+        <span>Please arrive at least 15 minutes before your appointment time.</span>
+    </div>
+
+    <!-- CHANGE 3: Cash at Clinic Payment Confirmed & Token Ready Notification Banner -->
+    <?php if (!empty($confirmed_cash_tokens) && $confirmed_cash_tokens->num_rows > 0): ?>
+        <?php while ($cct = $confirmed_cash_tokens->fetch_assoc()): ?>
+            <div class="alert alert-success" style="background: #f0fdf4; border: 1.5px solid #22c55e; color: #15803d; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                <div>
+                    <strong>🎉 Cash Payment Confirmed &mdash; Your Token is Ready!</strong>
+                    <div style="font-size: 0.92rem; margin-top: 0.25rem; color: #166534;">
+                        Reception confirmed payment for your appointment with <strong>Dr. <?php echo htmlspecialchars($cct['doctor_name']); ?></strong> (<?php echo date('M j \a\t h:i A', strtotime($cct['appointment_time'])); ?>). 
+                        Your Official Token Number is <code style="font-size: 1.05rem; font-weight: 800; background: #dcfce7; color: #047857; padding: 2px 8px; border-radius: 4px; border: 1px solid #86efac;"><?php echo htmlspecialchars($cct['token_number']); ?></code>
+                    </div>
+                </div>
+                <a href="my-appointments.php" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.4rem 0.85rem; white-space: nowrap;">View Appointments</a>
+            </div>
+        <?php endwhile; ?>
+    <?php endif; ?>
+    <?php endif; ?>
 
     <!-- =====================================================
          PATIENT DASHBOARD
@@ -254,6 +307,10 @@ $csrf_token = generateCsrfToken();
                 <a href="my-bills.php" class="quick-link-card">
                     <span class="link-icon">💰</span>
                     <span class="link-text">View Bills</span>
+                </a>
+                <a href="profile.php" class="quick-link-card">
+                    <span class="link-icon">👤</span>
+                    <span class="link-text">My Profile</span>
                 </a>
             </div>
         </div>

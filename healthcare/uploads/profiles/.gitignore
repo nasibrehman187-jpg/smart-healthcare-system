@@ -1,0 +1,4 @@
+# Ignore all uploaded profile pictures in git while preserving directory and security config
+*
+!.htaccess
+!.gitignore

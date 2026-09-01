@@ -32,7 +32,7 @@ $csrf_token = generateCsrfToken();
 
 // Fetch all appointments for this patient
 $stmt = $conn->prepare(
-    "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+    "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_status, a.payment_tid, a.payment_screenshot_path,
             a.severity_level, a.appointment_time, a.status, a.created_at,
             u.full_name AS doctor_name, d.specialization, d.clinic_address, d.city, d.consultation_fee
      FROM appointments a
@@ -79,6 +79,7 @@ $appointments = $stmt->get_result();
         <li><a href="book-appointment.php">📋 Book Appointment</a></li>
         <li><a href="my-appointments.php">📅 My Appointments</a></li>
         <li><a href="billing.php">💰 My Bills</a></li>
+        <li><a href="profile.php">👤 My Profile</a></li>
         <li><a href="logout.php" class="btn-logout">🚪 Logout</a></li>
     </ul>
 </nav>
@@ -88,6 +89,12 @@ $appointments = $stmt->get_result();
     <div class="flex-between mb-3">
         <h1 class="page-title" style="margin-bottom: 0;">📅 My Appointments</h1>
         <a href="book-appointment.php" class="btn btn-primary">+ Book New Appointment</a>
+    </div>
+
+    <!-- CHANGE 4: Arrival Reminder Alert -->
+    <div class="alert alert-info" style="background: #eff6ff; border: 1.5px solid #3b82f6; color: #1e40af; border-radius: 8px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.6rem; font-weight: 700;">
+        <span style="font-size: 1.25rem;">⏰</span>
+        <span>Please arrive at least 15 minutes before your appointment time.</span>
     </div>
 
     <!-- Flash Messages -->
@@ -123,15 +130,20 @@ $appointments = $stmt->get_result();
                         while ($appt = $appointments->fetch_assoc()): 
                             $is_cancelled = ($appt['status'] === 'Cancelled');
                             $can_cancel   = in_array($appt['status'], ['Pending', 'Confirmed']);
-                            $token_display = $appt['token_number'] ?? ('TK-' . str_pad($appt['appointment_id'], 4, '0', STR_PAD_LEFT));
                         ?>
                             <tr class="<?php echo $is_cancelled ? 'status-cancelled' : ''; ?>">
                                 <td><?php echo $count++; ?></td>
 
                                 <td>
-                                    <span class="badge" style="font-family: 'Courier New', monospace; font-size: 0.82rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
-                                        <?php echo htmlspecialchars($token_display); ?>
-                                    </span>
+                                    <?php if (!empty($appt['token_number'])): ?>
+                                        <span class="badge" style="font-family: 'Courier New', monospace; font-size: 0.82rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
+                                            <?php echo htmlspecialchars($appt['token_number']); ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge badge-orange" style="font-size: 0.72rem; padding: 0.35rem 0.55rem; line-height: 1.25; display: inline-block; white-space: normal; max-width: 170px; text-align: center;">
+                                            Payment Pending &mdash; Pay at Clinic to Receive Your Token
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
 
                                 <!-- Doctor name with "Dr." prefix -->
@@ -175,9 +187,15 @@ $appointments = $stmt->get_result();
                                     <span class="badge badge-<?php echo strtolower($appt['status']); ?>">
                                         <?php echo htmlspecialchars($appt['status']); ?>
                                     </span>
-                                    <div style="margin-top: 0.35rem; font-size: 0.78rem; color: #475569;">
-                                        <strong>Paid:</strong> <?php echo htmlspecialchars($appt['payment_method'] ?? 'Cash at Reception'); ?>
-                                    </div>
+                                    <?php if (empty($appt['token_number'])): ?>
+                                        <div style="margin-top: 0.35rem; font-size: 0.78rem;">
+                                            <span class="badge badge-orange" style="font-size: 0.72rem;">⏳ Payment Pending (Pay at Clinic)</span>
+                                        </div>
+                                    <?php else: ?>
+                                        <div style="margin-top: 0.35rem; font-size: 0.78rem; color: #475569;">
+                                            <strong>Paid via:</strong> <?php echo htmlspecialchars($appt['payment_method'] ?? 'Cash at Reception'); ?>
+                                        </div>
+                                    <?php endif; ?>
                                     <?php if (!empty($appt['payment_tid'])): ?>
                                         <div style="font-size: 0.74rem; color: #0284c7; font-family: monospace;">
                                             <strong>TID:</strong> <?php echo htmlspecialchars($appt['payment_tid']); ?>

@@ -190,10 +190,61 @@ if ($role === 'admin' || $role === 'doctor') {
                 if ($upd->execute() && $upd->affected_rows > 0) {
                     $success = "Bill #{$bill_id} marked as PAID successfully.";
                     logActivity($_SESSION['user_id'], 'Marked Bill Paid', "Bill #{$bill_id}");
+
+                    // Also ensure appointment token is issued and payment_status is updated to Paid
+                    $upd_tok_stmt = $conn->prepare(
+                        "UPDATE appointments a
+                         JOIN billing b ON a.appointment_id = b.appointment_id
+                         SET a.payment_status = 'Paid',
+                             a.token_number = COALESCE(a.token_number, CONCAT('TK-', DATE_FORMAT(a.appointment_time, '%Y%m%d'), '-', LPAD(a.appointment_id, 4, '0')))
+                         WHERE b.bill_id = ?"
+                    );
+                    $upd_tok_stmt->bind_param("i", $bill_id);
+                    $upd_tok_stmt->execute();
+                    $upd_tok_stmt->close();
                 } else {
                     $error = "Failed to update payment status or unauthorized.";
                 }
                 $upd->close();
+            }
+        }
+        unset($_SESSION['csrf_token']);
+    }
+
+    // -----------------------------------------------------
+    // 2.b HANDLE CONFIRM CASH PAYMENT & ISSUE TOKEN (POST - ADMIN ONLY)
+    // -----------------------------------------------------
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'confirm_cash_payment') {
+        if (!isset($_POST['csrf_token']) || !verifyCsrfToken($_POST['csrf_token'])) {
+            $error = "Security validation failed. Please try again.";
+        } elseif ($role !== 'admin') {
+            $error = "Unauthorized. Only Admin can confirm cash payments.";
+        } else {
+            $appointment_id = intval($_POST['appointment_id'] ?? 0);
+            if ($appointment_id > 0) {
+                $stmt = $conn->prepare("SELECT appointment_id, token_number, payment_status FROM appointments WHERE appointment_id = ?");
+                $stmt->bind_param("i", $appointment_id);
+                $stmt->execute();
+                $appt_chk = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+
+                if ($appt_chk) {
+                    $tok = $appt_chk['token_number'];
+                    if (empty($tok)) {
+                        $tok = 'TK-' . date('Ymd') . '-' . str_pad($appointment_id, 4, '0', STR_PAD_LEFT);
+                    }
+                    $upd = $conn->prepare("UPDATE appointments SET token_number = ?, payment_status = 'Paid' WHERE appointment_id = ?");
+                    $upd->bind_param("si", $tok, $appointment_id);
+                    if ($upd->execute()) {
+                        $success = "Cash payment confirmed! Official Token {$tok} generated and issued for Appointment #{$appointment_id}.";
+                        logActivity($_SESSION['user_id'], 'Confirmed Cash Payment', "Issued Token {$tok} for Appointment #{$appointment_id}");
+                    } else {
+                        $error = "Failed to confirm payment.";
+                    }
+                    $upd->close();
+                } else {
+                    $error = "Appointment not found.";
+                }
             }
         }
         unset($_SESSION['csrf_token']);
@@ -205,10 +256,26 @@ if ($role === 'admin' || $role === 'doctor') {
     $csrf_token = generateCsrfToken();
 
     // -----------------------------------------------------
-    // 4. FETCH UNBILLED APPOINTMENTS (AFTER POST PROCESSING)
+    // 4. FETCH UNBILLED & PENDING CASH APPOINTMENTS (AFTER POST PROCESSING)
     // -----------------------------------------------------
+    $pending_cash_appts = null;
     if ($role === 'admin') {
-        $unbilled_query = "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+        $pending_cash_appts = $conn->query(
+            "SELECT a.appointment_id, a.appointment_time, a.severity_level, a.status, a.payment_method, a.payment_status, a.token_number,
+                    u_p.full_name AS patient_name, p.insurance_number,
+                    u_d.full_name AS doctor_name, d.consultation_fee
+             FROM appointments a
+             JOIN patients p ON a.patient_id = p.patient_id
+             JOIN users u_p ON p.user_id = u_p.user_id
+             JOIN doctors d ON a.doctor_id = d.doctor_id
+             JOIN users u_d ON d.user_id = u_d.user_id
+             WHERE a.payment_method = 'Cash at Reception' 
+               AND (a.token_number IS NULL OR a.payment_status = 'Pending')
+               AND a.status IN ('Pending', 'Confirmed')
+             ORDER BY a.appointment_time ASC"
+        );
+
+        $unbilled_query = "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_status, a.payment_tid, a.payment_screenshot_path,
                                   a.appointment_time, a.severity_level, a.status,
                                   u_p.full_name AS patient_name, p.insurance_number,
                                   u_d.full_name AS doctor_name, d.consultation_fee
@@ -229,7 +296,7 @@ if ($role === 'admin' || $role === 'doctor') {
         $stmt->close();
 
         $stmt = $conn->prepare(
-            "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+            "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_status, a.payment_tid, a.payment_screenshot_path,
                     a.appointment_time, a.severity_level, a.status,
                     u_p.full_name AS patient_name, p.insurance_number,
                     u_d.full_name AS doctor_name, d.consultation_fee
@@ -407,6 +474,70 @@ if ($role === 'admin' || $role === 'doctor') {
 
         <?php if ($role === 'admin'): ?>
         <!-- =====================================================
+             CHANGE 3: CASH AT CLINIC — PENDING CONFIRMATIONS (Admin Only)
+             ===================================================== -->
+        <?php if ($pending_cash_appts && $pending_cash_appts->num_rows > 0): ?>
+        <div class="card" style="border-left: 4px solid #f59e0b; margin-bottom: 2rem;">
+            <div class="flex-between mb-2">
+                <div>
+                    <h2 style="color: #b45309; margin-bottom: 0.25rem;">💵 Cash at Clinic &mdash; Pending Payment Confirmations</h2>
+                    <p style="color: #78350f; font-size: 0.9rem; margin: 0;">
+                        These patients selected "Cash at Clinic". Confirm their cash payment when received at reception to generate and issue their appointment token.
+                    </p>
+                </div>
+                <span class="badge badge-orange" style="font-size: 0.85rem; font-weight: 700;"><?php echo $pending_cash_appts->num_rows; ?> Pending</span>
+            </div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Appt #</th>
+                            <th>Patient</th>
+                            <th>Doctor</th>
+                            <th>Scheduled Time</th>
+                            <th>Payable Amount</th>
+                            <th>Payment Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php 
+                        $pending_cash_appts->data_seek(0);
+                        while ($cp = $pending_cash_appts->fetch_assoc()): 
+                            $cfee = $cp['consultation_fee'];
+                            $cfinal = !empty($cp['insurance_number']) ? ($cfee * 0.8) : $cfee;
+                        ?>
+                            <tr>
+                                <td><strong>#<?php echo $cp['appointment_id']; ?></strong></td>
+                                <td>
+                                    <strong><?php echo htmlspecialchars($cp['patient_name']); ?></strong>
+                                    <?php if (!empty($cp['insurance_number'])): ?>
+                                        <br><small style="color: #059669;">🛡️ Insured (20% Discount)</small>
+                                    <?php endif; ?>
+                                </td>
+                                <td>Dr. <?php echo htmlspecialchars($cp['doctor_name']); ?></td>
+                                <td><?php echo date('M j, Y \a\t h:i A', strtotime($cp['appointment_time'])); ?></td>
+                                <td><strong>Rs. <?php echo number_format($cfinal, 2); ?></strong></td>
+                                <td><span class="badge badge-orange">Payment Pending</span></td>
+                                <td>
+                                    <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Confirm cash payment received for Appointment #<?php echo $cp['appointment_id']; ?>? This will generate and issue their official token.');">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
+                                        <input type="hidden" name="action" value="confirm_cash_payment">
+                                        <input type="hidden" name="appointment_id" value="<?php echo $cp['appointment_id']; ?>">
+                                        <button type="submit" class="btn btn-success" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; font-weight: 700;">
+                                            💵 Confirm Payment & Issue Token
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endwhile; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- =====================================================
              BILL CREATION FORM (Admin Only)
              ===================================================== -->
         <div class="card">
@@ -533,9 +664,13 @@ if ($role === 'admin' || $role === 'doctor') {
                         <tr>
                             <td><strong>#<?php echo $bill['bill_id']; ?></strong></td>
                             <td>
-                                <span class="badge" style="font-family: monospace; font-size: 0.78rem; font-weight: 700; background: #e0f2fe; color: #0369a1;">
-                                    <?php echo htmlspecialchars($bill['token_number'] ?? ('TK-' . str_pad($bill['bill_id'], 4, '0', STR_PAD_LEFT))); ?>
-                                </span>
+                                <?php if (!empty($bill['token_number'])): ?>
+                                    <span class="badge" style="font-family: monospace; font-size: 0.78rem; font-weight: 700; background: #e0f2fe; color: #0369a1;">
+                                        <?php echo htmlspecialchars($bill['token_number']); ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span class="badge badge-orange" style="font-size: 0.72rem;">Pending</span>
+                                <?php endif; ?>
                             </td>
                             <td><?php echo htmlspecialchars($bill['patient_name']); ?></td>
                             <td>Dr. <?php echo htmlspecialchars($bill['doctor_name']); ?></td>

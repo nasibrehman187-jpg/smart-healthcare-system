@@ -106,7 +106,7 @@ $symptom_labels = [
 if ($filter === 'all') {
     // Show ALL appointments for this doctor
     $stmt = $conn->prepare(
-        "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+        "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_status, a.payment_tid, a.payment_screenshot_path,
                 a.severity_level, a.appointment_time, a.status,
                 a.symptoms_selected, a.symptoms_text, a.diagnosed_disease,
                 u.full_name AS patient_name, p.age, p.cnic, p.insurance_number
@@ -119,7 +119,7 @@ if ($filter === 'all') {
 } else {
     // Show only TODAY's appointments (default view)
     $stmt = $conn->prepare(
-        "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_tid, a.payment_screenshot_path,
+        "SELECT a.appointment_id, a.token_number, a.payment_method, a.payment_status, a.payment_tid, a.payment_screenshot_path,
                 a.severity_level, a.appointment_time, a.status,
                 a.symptoms_selected, a.symptoms_text, a.diagnosed_disease,
                 u.full_name AS patient_name, p.age, p.cnic, p.insurance_number
@@ -218,9 +218,15 @@ $appointments = $stmt->get_result();
                                 <td>
                                     <strong>#<?php echo $appt['appointment_id']; ?></strong>
                                     <br>
-                                    <span class="badge" style="font-family: 'Courier New', monospace; font-size: 0.75rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
-                                        <?php echo htmlspecialchars($appt['token_number'] ?? ('TK-' . str_pad($appt['appointment_id'], 4, '0', STR_PAD_LEFT))); ?>
-                                    </span>
+                                    <?php if (!empty($appt['token_number'])): ?>
+                                        <span class="badge" style="font-family: 'Courier New', monospace; font-size: 0.75rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
+                                            <?php echo htmlspecialchars($appt['token_number']); ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge badge-orange" style="font-size: 0.70rem; padding: 0.2rem 0.4rem; white-space: normal; line-height: 1.2; display: inline-block;">
+                                            ⏳ Payment Pending
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <strong><?php echo htmlspecialchars($appt['patient_name']); ?></strong>

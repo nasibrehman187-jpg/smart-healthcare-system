@@ -153,6 +153,13 @@ $back_url = ($role === 'patient') ? 'my-bills.php' : 'billing.php';
                 <?php echo htmlspecialchars($bill['token_number']); ?>
             </span>
         </div>
+        <?php else: ?>
+        <div class="receipt-row">
+            <span class="label">Appointment Token:</span>
+            <span class="badge badge-orange" style="font-size: 0.8rem;">
+                Payment Pending &mdash; Pay at Clinic to Receive Token
+            </span>
+        </div>
         <?php endif; ?>
 
         <?php if (!empty($bill['payment_method'])): ?>
@@ -231,8 +238,12 @@ $back_url = ($role === 'patient') ? 'my-bills.php' : 'billing.php';
             <?php endif; ?>
         </div>
 
-        <!-- Receipt Footer Note -->
-        <div style="text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #f1f5f9; color: var(--gray-500); font-size: 0.88rem;">
+        <!-- Receipt Footer Note with Change 4 Arrival Reminder -->
+        <div style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 8px; padding: 0.75rem 1rem; margin-top: 1.5rem; text-align: center; font-size: 0.92rem; font-weight: 700;">
+            ⏰ Please arrive at least 15 minutes before your appointment time.
+        </div>
+
+        <div style="text-align: center; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #f1f5f9; color: var(--gray-500); font-size: 0.88rem;">
             💚 Thank you for choosing <strong>HealthCare+</strong>.<br>
             <small>Wish you good health and wellness!</small>
         </div>

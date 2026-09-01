@@ -25,5 +25,6 @@ portable/
 
 # OS generated files
 Thumbs.db
-Desktop.ini
-.DS_Store
+# Scratch test files
+scratch/
+
